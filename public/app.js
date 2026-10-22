@@ -174,7 +174,7 @@ async function connect() {
     state.remaining = health.freeRenders ?? state.remaining;
     $$('[data-render-count]').forEach(el => { el.textContent = String(state.remaining); });
     const banner = $('#connection-banner');
-    banner.textContent = state.ready ? 'Meet your South Charlotte team · share your project and request a consultation' : 'Design preview · the project connection is not ready to accept submissions.';
+    banner.textContent = state.ready ? (state.renderAvailable ? 'Meet your South Charlotte team · share your project and request a consultation' : 'Project requests are open · color visualizations are coming soon') : 'The project connection is not ready to accept submissions. Please contact our team.';
     banner.classList.toggle('live', state.ready);
     if (state.ready) await restoreSession();
   } catch {

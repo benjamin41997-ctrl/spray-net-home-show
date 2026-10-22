@@ -2,7 +2,7 @@
 
 The frontend and backend are separate deployments. GitHub Pages hosts public HTML/CSS/JavaScript and cannot hold API keys, run a private API, or safely enforce free-render limits. The included backend targets Cloudflare Workers with D1 and private R2. No backend, database, bucket, provider billing, or credentials have been provisioned by these files.
 
-The current source repository, `benjamin41997-ctrl/spray-net-home-show`, is private. Pages publication remains disabled through the `PUBLISH_PAGES` gate, the backend is undeployed, and `public/config.js` has no API connection. Keep this state until the relevant launch steps are authorized and completed. Running the build or passing tests does not publish the page or make the form live.
+The repository is public and the lead backend is deployed. See [DEPLOYMENT.md](DEPLOYMENT.md) for current production URLs and status. GitHub Actions supplies the production API origin; the source config remains disconnected for local design previews. Image generation is disabled pending provider-key/billing approval.
 
 ## Implemented lead and consultation flow
 
@@ -117,9 +117,9 @@ npx wrangler deploy --config backend/wrangler.jsonc
 
 Call `/api/health` on the returned Worker origin. With D1 schema, R2, origin settings, and salt configured, it should report `ready: true`; with a usable configured renderer it should also report `renderAvailable: true`. Health checks configuration and a lead-table read; they do not perform a paid provider request or prove the provider's credentials work. A real end-to-end rendering test is required.
 
-## 5. Optional future publication to personal GitHub Pages
+## 5. GitHub Pages deployment
 
-The personal source destination is the private `benjamin41997-ctrl/spray-net-home-show` repository. Keep it private and leave `PUBLISH_PAGES` disabled. Public publication has not been authorized. The remaining steps in this section describe a future launch, not actions already performed. A private repository does not necessarily mean a deployed Pages website is private; verify plan availability and site access separately.
+The personal source destination is the public `benjamin41997-ctrl/spray-net-home-show` repository. The user approved public repository visibility and GitHub Pages deployment. Production deployment is controlled by `PUBLISH_PAGES=true`; the build must also receive the configured `API_BASE_URL`.
 
 Push this folder as the repository source on `main`. In repository settings, select **Pages → Source → GitHub Actions**. Set **Settings → Secrets and variables → Actions → Variables → New repository variable** named `API_BASE_URL` to the public Worker origin. This URL is public configuration, not a secret. Never add a provider key or administrator token to a Pages build variable or source file.
 
@@ -161,7 +161,7 @@ Before accepting real visitors:
 
 ## Initial repository visibility
 
-The first version is stored in a private repository. The workflow runs build and tests, and deploys only when the repository variable `PUBLISH_PAGES` is exactly `true`. Enable Pages and this variable only after the public audience has been confirmed. A free GitHub account may require a public repository for Pages. No visitor information or credentials should ever be committed.
+The initial version was private. The user subsequently authorized making this repository public and deploying GitHub Pages. Keep customer information, runtime credentials, and exported leads out of source control. The workflow deploys only when `PUBLISH_PAGES` is exactly `true`.
 
 ## Local flow verification
 

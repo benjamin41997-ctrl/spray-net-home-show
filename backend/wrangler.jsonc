@@ -5,11 +5,11 @@
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
   "vars": {
-    "ALLOWED_ORIGINS": "http://localhost:4173,http://127.0.0.1:4173,https://YOUR_GITHUB_USERNAME.github.io",
-    "EVENT_ID": "home-show-2026",
+    "ALLOWED_ORIGINS": "https://benjamin41997-ctrl.github.io",
+    "EVENT_ID": "home-show-2026-10",
     "FREE_RENDERS": "3",
     "DAILY_RENDER_LIMIT": "50",
-    "LEADS_PER_IP_HOUR": "30",
+    "LEADS_PER_IP_HOUR": "300",
     "CONSENT_VERSION": "2026-10-21-v1",
     "OPENAI_IMAGE_MODEL": "gpt-image-1.5",
     "RENDER_TIMEOUT_MS": "90000"
@@ -18,7 +18,7 @@
     {
       "binding": "DB",
       "database_name": "spray-net-home-show",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "31855582-89b5-4359-b1cd-5dea17aa41b3"
     }
   ],
   "r2_buckets": [
@@ -27,5 +27,9 @@
       "bucket_name": "spray-net-home-show-private"
     }
   ],
-  "observability": { "enabled": false }
+  "observability": {
+    "enabled": false
+  },
+  "account_id": "95cb1255f32e6b736aa73da9d7eaf140",
+  "preview_urls": false
 }

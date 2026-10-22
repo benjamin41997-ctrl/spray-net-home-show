@@ -2,7 +2,7 @@
 
 A mobile-first lead and consultation-request form for Spray-Net South Charlotte, with an optional private photo color studio after submission. Saving a lead by itself or saving a lead with a consultation request both unlock the same three-render allowance. Visitors can return later to add photos and explore colors once the private API and rendering provider are configured. The visitor pays nothing; the business pays its rendering and hosting providers.
 
-The source is stored in the private [benjamin41997-ctrl/spray-net-home-show](https://github.com/benjamin41997-ctrl/spray-net-home-show) repository. Public Pages publication is disabled: `PUBLISH_PAGES` is not enabled. The backend remains undeployed and `apiBase` is empty, so the local frontend is a design preview and does not save leads or generate images. Publishing a static frontend does not deploy the private API.
+The source is stored in the public [benjamin41997-ctrl/spray-net-home-show](https://github.com/benjamin41997-ctrl/spray-net-home-show) repository. The production page is [Spray-Net home show](https://benjamin41997-ctrl.github.io/spray-net-home-show/). Its dedicated Cloudflare Worker stores leads in D1 and photos in a private R2 bucket. GitHub repository variables set `PUBLISH_PAGES=true` and the public `API_BASE_URL` for production builds. Local `public/config.js` keeps an empty API origin for a disconnected design preview. Image generation is disabled pending provider-key and billing approval. A live booking calendar is not connected; consultation requests are saved for team follow-up.
 
 ## Visitor flow
 
@@ -48,7 +48,7 @@ npm run build
 
 ## Connect and publish
 
-Follow [docs/SETUP.md](docs/SETUP.md) for the backend, rendering API adapter, public configuration, optional future GitHub Pages publication, and end-to-end acceptance checks. Keep the existing repository private and Pages disabled until public publication is authorized. The private source repository does not provide a visitor-facing deployment.
+Follow [docs/SETUP.md](docs/SETUP.md) for configuration and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the current production URLs and verified capabilities. Public repository visibility and GitHub Pages deployment were explicitly approved.
 
 All frontend assets use relative paths for GitHub project Pages. Branding and existing portfolio asset provenance are recorded in [docs/MEDIA-SOURCES.md](docs/MEDIA-SOURCES.md).
 
