@@ -647,6 +647,51 @@ test('failed upstream refunds visitor once while daily paid-attempt cap is retai
   });
 });
 
+test('provider failures store only safe classified codes, refund once and never expose provider metadata', async () => {
+  const cases = [
+    { status: 401, providerCode: 'invalid_api_key', expected: 'RENDER_AUTH' },
+    { status: 403, providerCode: 'model_not_found', expected: 'RENDER_AUTH' },
+    { status: 429, providerCode: 'insufficient_quota', expected: 'RENDER_BILLING' },
+    { status: 429, providerCode: 'billing_hard_limit_reached', expected: 'RENDER_BILLING' },
+    { status: 429, providerType: 'insufficient_quota', expected: 'RENDER_BILLING' },
+    { status: 429, providerCode: 'rate_limit_exceeded', expected: 'RENDER_RATE_LIMIT' },
+    { status: 404, providerCode: 'model_not_found', expected: 'RENDER_MODEL_UNAVAILABLE' },
+    { status: 400, providerCode: 'invalid_image', expected: 'RENDER_INVALID_REQUEST' },
+    { status: 500, providerCode: 'internal_error', expected: 'RENDER_FAILED' },
+    { status: 400, raw: '<html>upstream-body-private-value</html>', expected: 'RENDER_INVALID_REQUEST' },
+    { status: 429, raw: 'upstream-body-private-value'.repeat(1000), expected: 'RENDER_RATE_LIMIT' },
+    { status: 500, raw: 'upstream-body-private-value'.repeat(1000), declaredLength: 1000000, expected: 'RENDER_FAILED' },
+  ];
+  for (const item of cases) {
+    const env = environment(), person = await lead(env), uploaded = await photo(env, person);
+    const privateValues = ['upstream-body-private-value', 'upstream-request-private-id', person.token, env.RENDER_API_KEY, base64Jpeg];
+    let calls = 0;
+    await withFetch(async () => {
+      calls++;
+      return new Response(item.raw ?? JSON.stringify({ error: { code: item.providerCode, type: item.providerType,
+        message: privateValues.join(' '), request_id: 'upstream-request-private-id', photo: base64Jpeg } }), {
+        status: item.status, headers: { 'Content-Type': 'application/json', 'x-request-id': 'upstream-request-private-id',
+          ...(item.declaredLength ? { 'Content-Length': String(item.declaredLength) } : {}) } });
+    }, async () => {
+      const options = { method: 'POST', body: settings(uploaded.id), token: person.token, key: crypto.randomUUID() };
+      const response = await request(env, `/api/leads/${person.id}/renders`, options);
+      assert.equal(response.status, 502, item.expected); const text = await response.text();
+      const result = JSON.parse(text); assert.equal(result.error.code, item.expected);
+      assert.match(result.error.message, /credit has been restored/);
+      assert.equal(response.headers.get('x-request-id'), null);
+      for (const value of privateValues) assert.equal(text.includes(value), false, item.expected);
+      const stored = env.DB.sqlite.prepare('SELECT status,error_code FROM renders').get();
+      assert.equal(stored.status, 'failed'); assert.equal(stored.error_code, item.expected);
+      assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders, 3);
+      assert.equal(env.DB.sqlite.prepare('SELECT attempts FROM daily_attempts').get().attempts, 1);
+      const retry = await request(env, `/api/leads/${person.id}/renders`, options); assert.equal(retry.status, 200);
+      const recovered = await retry.text(); assert.equal(JSON.parse(recovered).error.code, item.expected);
+      for (const value of privateValues) assert.equal(recovered.includes(value), false);
+      assert.equal(calls, 1); assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders, 3);
+    });
+  }
+});
+
 test('interrupted pending render recovers visitor budget once after five minutes', async () => {
   const env = environment(), person = await lead(env), uploaded = await photo(env, person);
   const id = crypto.randomUUID(), old = new Date(Date.now() - 10 * 60000).toISOString();
@@ -701,4 +746,27 @@ test('disabled renderer does not consume visitor credit or pretend a render succ
     method: 'POST', body: settings(uploaded.id), token: person.token, key: 'disabled-render-key' });
   assert.equal(response.status, 503); assert.equal((await response.json()).error.code, 'RENDER_UNAVAILABLE');
   assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders, 3);
+});
+
+test('RENDER_ENABLED false disables configured providers before any image request, reservation or charge', async () => {
+  for (const provider of [
+    {}, { RENDER_API_URL: '', RENDER_API_KEY: '', OPENAI_API_KEY: 'test-only-server-image-key' },
+  ]) {
+    const env = environment({ ...provider, RENDER_ENABLED: 'false' }), person = await lead(env), uploaded = await photo(env, person);
+    assert.equal(configuration(env).renderEnabled, false); assert.equal(configuration(env).renderAvailable, false);
+    assert.equal(configuration({ ...env, RENDER_ENABLED: undefined }).renderEnabled, true);
+    const health = await (await request(env, '/api/health')).json(); assert.equal(health.ready, true); assert.equal(health.renderAvailable, false);
+    let calls = 0;
+    await withFetch(async () => { calls++; throw new Error('No image request may be sent while disabled.'); }, async () => {
+      const response = await request(env, `/api/leads/${person.id}/renders`, {
+        method: 'POST', body: settings(uploaded.id), token: person.token, key: crypto.randomUUID() });
+      assert.equal(response.status, 503); assert.equal((await response.json()).error.code, 'RENDER_UNAVAILABLE');
+      await assert.rejects(callRenderer(env, { bytes: jpeg, mime: 'image/jpeg' }, settings(uploaded.id), async () => {calls++;}),
+        error => error.code === 'RENDER_UNAVAILABLE');
+      assert.equal(calls, 0);
+    });
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM renders').get().n, 0);
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
+    assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders, 3);
+  }
 });

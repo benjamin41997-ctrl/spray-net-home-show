@@ -108,6 +108,7 @@ async function connect() {
     }
     const health = apiBase ? await request('/api/health') : null;
     state.ready = health?.ready === true; state.renderAvailable = health?.renderAvailable === true;
+    const availability = $('#visualizer-availability'); if (availability) availability.hidden = state.renderAvailable;
     state.remaining = health?.freeRenders ?? config.freeRenders ?? 3;
     $$('[data-free-renders]').forEach(e => { e.textContent = String(state.remaining); });
     $('#booking-length').textContent = `${health?.consultationMinutes || 90}-minute consultation · ${health?.travelBufferMinutes ?? 30}-minute travel buffer`;

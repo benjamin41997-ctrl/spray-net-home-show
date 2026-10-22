@@ -2,7 +2,7 @@
 
 A quick name-and-phone lead form for Spray-Net South Charlotte, with separate tablet-kiosk and mobile layouts sharing one private backend. Visitors can then book a consultation in the app's internal calendar. Only a confirmed server appointment unlocks photos and the three-render visualizer. **No corporate Microsoft/Entra connection is required.**
 
-The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-home-show) and [Pages address](https://benjamin41997-ctrl.github.io/spray-net-home-show/) already exist with a dedicated Cloudflare lead API/D1/private R2. See [deployment status](docs/DEPLOYMENT.md) for what is actually released and verified; a source change or successful test is not a deployment. Local public/config.js stays disconnected for previews; the production build receives API_BASE_URL from GitHub Actions. The user's rendering key is configured privately; a real generation/output-quality test remains unverified.
+The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-home-show) and [Pages address](https://benjamin41997-ctrl.github.io/spray-net-home-show/) use a dedicated Cloudflare lead API/D1/private R2. See [deployment status](docs/DEPLOYMENT.md) for release verification. Local public/config.js stays disconnected for previews; the production build receives API_BASE_URL from GitHub Actions. The rendering key is configured privately, but the single approved real generation test failed. Generation is paused with RENDER_ENABLED=false while the cause is diagnosed; lead capture, booking, and private uploads remain available.
 
 ## Visitor and staff flow
 

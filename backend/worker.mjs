@@ -30,7 +30,8 @@ export function configuration(env) {
   const ready = Boolean(env.DB && env.PHOTOS && secretReady(env.RATE_LIMIT_SALT) && origins.length);
   const customRequested = Boolean(env.RENDER_API_URL || env.RENDER_API_KEY);
   const custom = Boolean(env.RENDER_API_URL && env.RENDER_API_KEY && validHttps(env.RENDER_API_URL));
-  return { origins, ready, renderAvailable: ready && Boolean(customRequested ? custom : env.OPENAI_API_KEY), custom, customRequested,
+  const renderEnabled = String(env.RENDER_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+  return { origins, ready, renderEnabled, renderAvailable: ready && renderEnabled && Boolean(customRequested ? custom : env.OPENAI_API_KEY), custom, customRequested,
     freeRenders: int(env.FREE_RENDERS, 3, 10), dailyLimit: int(env.DAILY_RENDER_LIMIT, 50, 5000),
     leadsPerHour: int(env.LEADS_PER_IP_HOUR, 30, 1000),
     timeout: Math.max(1000, int(env.RENDER_TIMEOUT_MS, 90000, 120000)),
@@ -263,8 +264,37 @@ function decodeResult(base64, mime) {
   if (!actual || actual !== mime || bytes.length > MAX_RESULT) fail(502, 'INVALID_RENDER', 'The rendering service returned an unsupported image.');
   return { bytes, mime };
 }
+function renderFailureMessage(code) {
+  const messages = {
+    RENDER_AUTH: 'The visualization service needs a connection update. Your preview credit has been restored. Please contact the team.',
+    RENDER_BILLING: 'Visualizations are temporarily unavailable while our team updates the service. Your preview credit has been restored.',
+    RENDER_RATE_LIMIT: 'The visualization service is busy. Your preview credit has been restored. Please try again later.',
+    RENDER_MODEL_UNAVAILABLE: 'This visualization model is unavailable. Your preview credit has been restored. Please contact the team.',
+    RENDER_INVALID_REQUEST: 'The visualization request could not be accepted. Your preview credit has been restored. Please contact the team.',
+  };
+  return messages[code] || 'The preview could not be generated. Your preview credit has been restored.';
+}
+async function upstreamRenderFailure(response) {
+  let providerCode = '', providerType = '';
+  try {
+    // Parse only a bounded error envelope. Never retain or forward provider text,
+    // request IDs, echoed credentials, image data, or arbitrary error metadata.
+    const error = JSON.parse(new TextDecoder().decode(await readBounded(response, 16 * 1024)))?.error;
+    if (typeof error?.code === 'string') providerCode = error.code;
+    if (typeof error?.type === 'string') providerType = error.type;
+  } catch { /* HTTP status still permits safe classification for malformed/oversized bodies. */ }
+  let code = 'RENDER_FAILED';
+  if ([401, 403].includes(response.status)) code = 'RENDER_AUTH';
+  else if (response.status === 429) code = [providerCode, providerType].some(value =>
+    ['insufficient_quota', 'billing_hard_limit_reached'].includes(value)) ? 'RENDER_BILLING' : 'RENDER_RATE_LIMIT';
+  else if (providerCode === 'model_not_found') code = 'RENDER_MODEL_UNAVAILABLE';
+  else if (response.status === 400) code = 'RENDER_INVALID_REQUEST';
+  fail(502, code, renderFailureMessage(code));
+}
 export async function callRenderer(env, photo, settings, fetcher = fetch) {
-  const config = configuration(env), controller = new AbortController();
+  const config = configuration(env);
+  if (!config.renderEnabled) fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
+  const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeout);
   try {
     let url, init;
@@ -283,7 +313,7 @@ export async function callRenderer(env, photo, settings, fetcher = fetch) {
       init = { method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body };
     } else fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
     const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error' });
-    if (!response.ok) fail(502, 'RENDER_FAILED', 'The preview could not be generated. Your preview credit has been restored.');
+    if (!response.ok) await upstreamRenderFailure(response);
     const body = JSON.parse(new TextDecoder().decode(await readBounded(response, Math.ceil(MAX_RESULT / 3) * 4 + 65536)));
     // Never fetch arbitrary provider-returned URLs (SSRF/privacy). Custom APIs must return inline base64.
     if (config.custom) return decodeResult(body.image_base64, body.mime_type);
@@ -304,7 +334,7 @@ async function renderResponse(env, leadId, render, status = 200) {
   const lead = await env.DB.prepare('SELECT remaining_renders FROM leads WHERE id=?').bind(leadId).first();
   return json({ id: render.id, status: render.status, remainingRenders: lead.remaining_renders,
     ...(render.status === 'completed' ? { imageUrl: `/api/leads/${leadId}/renders/${render.id}/image` } : {}),
-    ...(render.status === 'failed' ? { error: { code: render.error_code || 'RENDER_FAILED', message: 'Preview failed. Your credit has been restored; please try again.' } } : {}),
+    ...(render.status === 'failed' ? { error: { code: render.error_code || 'RENDER_FAILED', message: renderFailureMessage(render.error_code) } } : {}),
   }, status);
 }
 async function createRender(request, env, config, lead) {

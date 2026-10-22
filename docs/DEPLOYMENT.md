@@ -18,7 +18,7 @@ No corporate Microsoft/Entra connection is required. Availability begins Monday,
 
 Internal booking is authoritative for this app and does not read/sync Outlook or send invitations. The staff page can download appointments with 30 minutes added for travel for manual Outlook import. Changes/cancellations must be updated manually in the other calendar. See [calendar setup](CALENDAR-SETUP.md).
 
-The renderer key is server-only and connected with user approval. Three successful renders per normalized phone/event and 50 daily attempts are the configured limits. Do not claim image generation has been verified until a real authorized test returns usable output.
+The renderer key is server-only and connected with user approval. The single approved real test failed without producing an image; the visitor's credit was restored and the disposable test lead, booking, and stored photo were removed. No further paid render request has been made. Generation is paused using RENDER_ENABLED=false until a successful authorized verification. Three successful renders per normalized phone/event and 50 daily attempts remain the configured limits.
 
 Staff access uses the separate administrator key, entered only in the admin page and held in tab memory. A separately supplied local access file must remain private/outside Git and must never be published. No access value belongs in these deployment notes.
 
