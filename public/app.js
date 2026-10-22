@@ -88,7 +88,8 @@ async function restoreSession() {
   if (incoming) state.lead = incoming;
   else if (matching?.pendingLead) {
     const p = matching.pendingLead;
-    state.lead = await request('/api/leads', { method: 'POST', body: p.payload, headers: { 'Idempotency-Key': p.key, 'X-Lead-Token': p.token } });
+    try { state.lead = await request('/api/leads', { method: 'POST', body: p.payload, headers: { 'Idempotency-Key': p.key, 'X-Lead-Token': p.token } }); }
+    catch (e) { if ([400,422].includes(e.status) || e.code === 'ALREADY_REGISTERED') {state.pendingLead = null;saveSession({pendingLead:null});} throw e; }
   } else state.lead = matching?.lead || null;
   if (!state.lead) return;
   state.pendingLead = null; saveSession({ lead: state.lead, pendingLead: null });
@@ -137,7 +138,7 @@ form.addEventListener('submit', async event => {
     state.lead = lead; state.pendingLead = null; state.remaining = lead.remainingRenders; saveSession({ lead, pendingLead: null });
     state.session = { lead: { ...payload }, booking: { status: 'none' }, visualizerUnlocked: false };
     showSaved({ focus: true });
-  } catch (e) { if ([400,422].includes(e.status)) { state.pendingLead = null; saveSession({ pendingLead: null }); } message(e.name === 'TimeoutError' ? 'The connection timed out. Submit again to check this same request.' : e.message); }
+  } catch (e) { if ([400,422].includes(e.status) || e.code === 'ALREADY_REGISTERED') { state.pendingLead = null; saveSession({ pendingLead: null }); } message(e.name === 'TimeoutError' ? 'The connection timed out. Submit again to check this same request.' : e.message); }
   finally { state.busy = false; setBusy(button, false); }
 });
 function renderSlots() {
