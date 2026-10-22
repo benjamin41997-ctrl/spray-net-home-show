@@ -2,6 +2,10 @@
 
 GitHub Pages serves the frontend only. Run this API as a Cloudflare Worker with a D1 database and a **private** R2 bucket. No photo, contact details, administrator token, or image API key belongs in the GitHub repository. This directory contains configuration examples, not deployed infrastructure.
 
+The primary flow is saving a lead for project follow-up and consultation scheduling. The visualizer is an optional post-lead perk: every session, photo, and render route requires the bearer token for an existing saved lead. Selecting a photo or viewing the page does not unlock rendering. Leads can be collected while rendering is disabled and the visualizer can be connected after the show.
+
+An external scheduling link may be offered after the lead is saved. The server records the visitor's consultation preference as `schedule_now` or `contact_me`; this is intent, not an appointment. Opening that scheduler does not confirm an appointment, and this API does not record a booked status or enforce a booking requirement. A future booking-gated offer would need a verified scheduler integration or webhook that confirms the actual appointment; no client-supplied booked flag should unlock it.
+
 ## Setup
 
 From this directory, with a current Node.js runtime and Cloudflare account:
@@ -24,6 +28,15 @@ npx wrangler deploy
 Use separate cryptographically random base64url or hexadecimal secrets, at least 32 characters each. Keep the administrator secret in a password manager. Do not use the example placeholders. Wrangler stores production secrets separately from source files. For local development, copy `.dev.vars.example` to ignored `.dev.vars`, set real random development secrets, initialize the local database using `--local` instead of `--remote`, and run `npx wrangler dev`.
 
 `GET /api/health` must return `ready: true` before public submissions. It checks bindings, configuration, and the lead table. It does not prove cloud account billing, R2 write permissions, or a renderer's account access. Test a complete private submission and export before use.
+
+`schema.sql` initializes a new database. If an earlier development database already contains `leads`, applying `CREATE TABLE IF NOT EXISTS` does not add newly introduced columns. Migrate that database before running the updated Worker:
+
+```sql
+ALTER TABLE leads ADD COLUMN consultation_preference TEXT NOT NULL DEFAULT 'contact_me'
+  CHECK (consultation_preference IN ('contact_me', 'schedule_now'));
+```
+
+Run this once only after confirming the column is absent, and back up any database containing real leads first. New databases need only `schema.sql`.
 
 ## Enable real renders
 
@@ -54,8 +67,9 @@ Every error is JSON `{ "error": { "code": "CODE", "message": "Safe visitor-facin
 | Route | Authentication | Result |
 | --- | --- | --- |
 | `GET /api/health` | None | `{ready,renderAvailable,freeRenders}` |
-| `POST /api/leads` | None; IP limit applies | `{id,token,remainingRenders}` |
-| `GET /api/leads/:id/session` | Visitor bearer | `{id,remainingRenders,photos,renders}`; no contact fields |
+| `POST /api/leads` | None; IP limit applies | `{id,token,remainingRenders,consultationPreference}` |
+| `POST /api/leads/:id/consultation` | Visitor bearer | `{consultationPreference:"schedule_now"}`; records intent only |
+| `GET /api/leads/:id/session` | Visitor bearer | `{id,remainingRenders,consultationPreference,photos,renders}`; no contact fields |
 | `POST /api/leads/:id/photos` | Visitor bearer | Multipart `photo`; `{id,url}` |
 | `GET /api/leads/:id/photos/:photoId` | Visitor bearer | Private image bytes |
 | `POST /api/leads/:id/renders` | Visitor bearer + `Idempotency-Key` | `{id,status,imageUrl?,remainingRenders,error?}` |
@@ -64,6 +78,10 @@ Every error is JSON `{ "error": { "code": "CODE", "message": "Safe visitor-facin
 | `GET /api/admin/leads.csv` | Separate administrator bearer | Formula-protected CSV |
 
 Lead JSON: `firstName`, `lastName`, `email`, `phone`, `address`, `city`, two-letter `state`, US `zip`, `service`, optional `timeline`, `notes`, `event`, and `contactConsent: true`. Consent time and a configurable consent-text version are recorded. The server stores SHA-256 hashes of visitor bearer tokens, never their cleartext value.
+
+`consultationPreference` accepts only `schedule_now` or `contact_me`, defaulting to `contact_me` when omitted by an older client. It is persisted as `consultation_preference`, returned in the creation response and authenticated session, and included in the administrator CSV. Both choices save a lead and unlock the same post-lead visualizer allowance. Neither proves a consultation has been booked. Preference is part of the validated lead payload and therefore part of the idempotency hash; changing it while retrying the same submission is rejected.
+
+After a lead-only submission, `POST /api/leads/:id/consultation` with JSON `{ "consultationPreference": "schedule_now" }` and the saved lead's bearer records a later consultation request without creating another lead. Repeating this request has the same result, does not change render credits or daily attempts, and never contacts the image provider. The frontend can offer a real configured scheduler link only after this request succeeds. Without a configured scheduler it should explain that the team will arrange the consultation; no booking is confirmed by this endpoint.
 
 For loss-safe initial submission, generate a random 32-byte base64url token in the visitor's browser and a UUID request key **before sending**. Retain them while retrying. Send `X-Lead-Token` and `Idempotency-Key` headers together. The exact same validated payload, token, and key returns the original lead and remaining budget. A different token can never claim the existing email/event record. Without both headers, a new lead gets a server-generated token and cannot recover a lost response. Already registered users without their session need staff assistance; there is no insecure email-only account recovery.
 
@@ -85,7 +103,7 @@ All media URLs are relative API paths. Resolve them against the configured API o
 
 ## Export and retention
 
-CSV includes standard contact/service fields plus event, consent, timestamps and photo/render counts. It does **not** claim an exact Spray-Network import schema: verify and map columns against a real import template before the show. A leading apostrophe protects formula-like cells; account for that marker when mapping an international phone number. Export refuses more than 10,000 leads rather than silently truncating.
+CSV includes standard contact/service fields plus consultation preference, event, consent, timestamps and photo/render counts. It does **not** claim an exact Spray-Network import schema: verify and map columns against a real import template before the show. A leading apostrophe protects formula-like cells; account for that marker when mapping an international phone number. Export refuses more than 10,000 leads rather than silently truncating.
 
 The administrator endpoint has no password-entry web page; use an authenticated request from a trusted local tool. Do not paste the secret into a public page or URL. Administrator export contains private contact details.
 
@@ -99,4 +117,4 @@ From the project root with Node.js 24 or newer:
 node --test tests/backend.test.mjs
 ```
 
-Tests use real in-memory SQLite to execute the schema/triggers, an in-memory R2 mock, and mocked renderer fetches. They cover ownership, CORS, consent, deduplication, retry recovery, concurrent quota reservation, refunds, daily caps, private media, CSV injection, and both renderer contracts. A real deployed Worker/R2/OpenAI end-to-end smoke test is still required after provisioning.
+Tests use real in-memory SQLite to execute the schema/triggers, an in-memory R2 mock, and mocked renderer fetches. They cover ownership, CORS, consent, deduplication, retry recovery, concurrent quota reservation, refunds, daily caps, private media, CSV injection, and both renderer contracts. An integration test explicitly checks every consultation/session/photo/render route before registration, with no bearer, with a forged bearer, and with a different saved lead's bearer, and confirms rejected requests cause no provider calls or allowance consumption. Consultation tests cover invalid choices, both initial preferences, authenticated repeat requests, persistence, recovery, and export without fake booking status or render charges. The OpenAI adapter test also checks that an interior cabinet request uses a general surface-refinishing prompt. A real deployed Worker/R2/OpenAI end-to-end smoke test is still required after provisioning.

@@ -88,6 +88,65 @@ test('lead validation requires consent, complete contact details and a US ZIP', 
   assert.throws(() => validateLead({ ...sample(), phone: '111' }), /phone/);
   assert.throws(() => validateLead({ ...sample(), zip: 'abc' }), /ZIP/);
   assert.equal(validateLead({ ...sample(), state: 'fl' }).state, 'FL');
+  assert.equal(validateLead(sample()).consultationPreference, 'contact_me');
+  for (const preference of ['booked', 'confirmed', 'contact', '', null, true, ['schedule_now']]) {
+    assert.throws(() => validateLead({ ...sample(), consultationPreference: preference }), /schedule a consultation/);
+  }
+});
+
+test('consultation preference saves, recovers and exports intent for both choices without claiming a booking', async () => {
+  const env = environment();
+  const invalid = await request(env, '/api/leads', { method: 'POST', body: { ...sample(), consultationPreference: 'booked' } });
+  assert.equal(invalid.status, 400); assert.equal((await invalid.json()).error.code, 'INVALID_CONSULTATION_PREFERENCE');
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 0);
+  for (const preference of ['contact_me', 'schedule_now']) {
+    const person = await lead(env, { ...sample(), email: `${preference}@example.com`, consultationPreference: preference });
+    assert.equal(person.consultationPreference, preference);
+    const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id);
+    assert.equal(row.consultation_preference, preference); assert.equal(row.remaining_renders, 3);
+    const response = await request(env, `/api/leads/${person.id}/session`, { token: person.token });
+    assert.equal(response.status, 200); const session = await response.json();
+    assert.equal(session.consultationPreference, preference); assert.equal(session.remainingRenders, 3);
+    assert.deepEqual(session.photos, []); assert.deepEqual(session.renders, []);
+    assert.equal('booked' in session, false); assert.equal('bookingStatus' in session, false);
+  }
+  const exported = await request(env, '/api/admin/leads.csv', { token: env.ADMIN_TOKEN });
+  assert.equal(exported.status, 200); const csv = await exported.text();
+  const rows = csv.replace(/^\uFEFF/, '').split('\r\n').map(line => line.split(',').map(cell => cell.slice(1, -1)));
+  const preferenceColumn = rows[0].indexOf('consultation_preference'), emailColumn = rows[0].indexOf('email');
+  assert.ok(preferenceColumn >= 0);
+  for (const preference of ['contact_me', 'schedule_now']) {
+    assert.equal(rows.find(row => row[emailColumn] === `${preference}@example.com`)[preferenceColumn], preference);
+  }
+  assert.equal(rows[0].includes('booked'), false); assert.equal(rows[0].includes('booking_status'), false);
+});
+
+test('saved lead can request a consultation idempotently without another lead, booking or render charge', async () => {
+  const env = environment(), person = await lead(env), other = await lead(env, { ...sample(), email: 'another@example.com' });
+  const path = `/api/leads/${person.id}/consultation`, body = { consultationPreference: 'schedule_now' };
+  let providerCalls = 0;
+  await withFetch(async () => { providerCalls++; return renderedResponse(); }, async () => {
+    for (const token of [undefined, 'forged-visitor-token-with-enough-characters', other.token]) {
+      const response = await request(env, path, { method: 'POST', body, token });
+      assert.equal(response.status, 401);
+    }
+    assert.equal(env.DB.sqlite.prepare('SELECT consultation_preference FROM leads WHERE id=?').get(person.id).consultation_preference, 'contact_me');
+    const invalid = await request(env, path, { method: 'POST', body: { consultationPreference: 'booked' }, token: person.token });
+    assert.equal(invalid.status, 400);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await request(env, path, { method: 'POST', body, token: person.token });
+      assert.equal(response.status, 200); assert.deepEqual(await response.json(), body);
+    }
+    const session = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
+    assert.equal(session.consultationPreference, 'schedule_now'); assert.equal(session.remainingRenders, 3);
+    assert.equal('booked' in session, false); assert.equal('bookingStatus' in session, false);
+    const csv = await (await request(env, '/api/admin/leads.csv', { token: env.ADMIN_TOKEN })).text();
+    assert.ok(csv.includes('"consultation_preference"')); assert.ok(csv.includes('"schedule_now"'));
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 2);
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM renders').get().n, 0);
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
+    assert.equal(providerCalls, 0);
+  });
 });
 
 test('lead submission stores a hashed token, deduplicates normalized email per server event, records consent', async () => {
@@ -118,9 +177,64 @@ test('lost lead response can be retried with the same client token, key and payl
   assert.deepEqual(await retry.json(), original);
   const changed = await request(env, '/api/leads', { ...options, body: { ...sample(), firstName: 'Changed' } });
   assert.equal(changed.status, 409);
+  const changedIntent = await request(env, '/api/leads', { ...options, body: { ...sample(), consultationPreference: 'schedule_now' } });
+  assert.equal(changedIntent.status, 409);
   const takeover = await request(env, '/api/leads', { ...options, headers: { 'X-Lead-Token': 'a'.repeat(43) } });
   assert.equal(takeover.status, 409); assert.equal((await takeover.text()).includes(clientToken), false);
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 1);
+});
+
+test('post-lead studio requires a saved lead and its bearer on every session, photo and render route', async () => {
+  const env = environment(); let providerCalls = 0;
+  const forgedToken = 'unregistered-visitor-token-with-enough-characters';
+  function protectedRoutes(personId, photoId, renderId) {
+    const upload = new FormData();
+    upload.append('photo', new Blob([jpeg], { type: 'image/jpeg' }), 'home.jpg');
+    return [
+      [`/api/leads/${personId}/session`, {}],
+      [`/api/leads/${personId}/consultation`, { method: 'POST', body: { consultationPreference: 'schedule_now' } }],
+      [`/api/leads/${personId}/photos`, { method: 'POST', body: upload }],
+      [`/api/leads/${personId}/photos/${photoId}`, {}],
+      [`/api/leads/${personId}/renders`, { method: 'POST', body: settings(photoId), key: crypto.randomUUID() }],
+      [`/api/leads/${personId}/renders/${renderId}`, {}],
+      [`/api/leads/${personId}/renders/${renderId}/image`, {}],
+    ];
+  }
+  async function denied(routes, tokens) {
+    for (const token of tokens) for (const [path, options] of routes) {
+      const response = await request(env, path, { ...options, token });
+      assert.equal(response.status, 401, `${options.method || 'GET'} ${path} must require the saved lead's bearer`);
+      assert.equal((await response.json()).error.code, 'UNAUTHORIZED');
+    }
+  }
+  const count = table => env.DB.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+  await withFetch(async () => { providerCalls++; return renderedResponse(); }, async () => {
+    // No valid submission exists. Guessed IDs and a syntactically valid forged bearer cannot unlock the perk.
+    await denied(protectedRoutes(crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()), [undefined, forgedToken]);
+    const invalid = await request(env, '/api/leads', { method: 'POST', body: { ...sample(), contactConsent: false } });
+    assert.equal(invalid.status, 400);
+    assert.equal(count('leads'), 0); assert.equal(count('photos'), 0); assert.equal(count('renders'), 0);
+    assert.equal(count('daily_attempts'), 0); assert.equal(env.PHOTOS.files.size, 0); assert.equal(providerCalls, 0);
+
+    // Saving a lead enables its own session; an additional saved lead still cannot access this visitor's studio.
+    const person = await lead(env), other = await lead(env, { ...sample(), email: 'another@example.com' });
+    const uploaded = await photo(env, person);
+    const routes = protectedRoutes(person.id, uploaded.id, crypto.randomUUID());
+    await denied(routes, [undefined, forgedToken, other.token]);
+    assert.equal((await request(env, `/api/leads/${person.id}/session`, { token: person.token })).status, 200);
+    assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id).remaining_renders, 3);
+    assert.equal(count('renders'), 0); assert.equal(count('daily_attempts'), 0); assert.equal(providerCalls, 0);
+
+    // A real authenticated render proves the positive path, then its actual metadata and bytes stay private.
+    const completed = await request(env, `/api/leads/${person.id}/renders`, {
+      method: 'POST', body: settings(uploaded.id), token: person.token, key: crypto.randomUUID() });
+    assert.equal(completed.status, 201); const render = await completed.json();
+    assert.equal(providerCalls, 1); assert.equal(render.remainingRenders, 2);
+    await denied(protectedRoutes(person.id, uploaded.id, render.id), [undefined, forgedToken, other.token]);
+    assert.equal(providerCalls, 1); assert.equal(count('renders'), 1); assert.equal(count('photos'), 1);
+    assert.equal(env.DB.sqlite.prepare('SELECT attempts FROM daily_attempts').get().attempts, 1);
+    assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id).remaining_renders, 2);
+  });
 });
 
 test('private photo upload checks magic bytes, MIME, size, ownership and eight-photo limit', async () => {
@@ -245,10 +359,13 @@ test('renderer adapter uses server secrets and validates inline output; no URL f
   await assert.rejects(callRenderer(env, { bytes: jpeg, mime: 'image/jpeg' }, settings('photo'), async () =>
     new Response(JSON.stringify({ image_url: 'http://169.254.169.254/secret' }))), /unsupported image/);
   const openai = { ...env, RENDER_API_URL: '', RENDER_API_KEY: '', OPENAI_API_KEY: 'server-only-openai-key' };
-  await callRenderer(openai, { bytes: jpeg, mime: 'image/jpeg' }, settings('photo'), async (url, init) => {
+  await callRenderer(openai, { bytes: jpeg, mime: 'image/jpeg' }, { ...settings('photo'), surface: 'Cabinets' }, async (url, init) => {
     assert.equal(url, 'https://api.openai.com/v1/images/edits'); assert.ok(init.body instanceof FormData);
     assert.equal(init.body.get('model'), 'gpt-image-1.5'); assert.equal(init.body.get('n'), '1');
     assert.equal(init.body.get('image[]').type, 'image/jpeg');
+    assert.match(init.body.get('prompt'), /Change only the Cabinets/);
+    assert.match(init.body.get('prompt'), /Preserve the exact scene geometry/);
+    assert.doesNotMatch(init.body.get('prompt'), /exterior repaint/);
     assert.equal(init.headers.Authorization, 'Bearer server-only-openai-key');
     return new Response(JSON.stringify({ data: [{ b64_json: base64Jpeg }] }));
   });

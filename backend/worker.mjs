@@ -66,8 +66,11 @@ export function validateLead(body) {
     address: text(body.address, 'street address', 180), city: text(body.city, 'city', 100),
     state: text(body.state, 'state', 2).toUpperCase(), zip: text(body.zip, 'ZIP code', 10),
     service: text(body.service, 'service interest', 100), timeline: text(body.timeline, 'timeline', 100, false),
+    consultationPreference: body.consultationPreference === undefined ? 'contact_me' : body.consultationPreference,
     notes: text(body.notes, 'project notes', 2000, false), event: text(body.event, 'event', 160, false),
   };
+  if (!['contact_me', 'schedule_now'].includes(lead.consultationPreference))
+    fail(400, 'INVALID_CONSULTATION_PREFERENCE', 'Choose whether to schedule a consultation or ask our team to contact you.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address.');
   if (!/^[+()\d\s.\-]+$/.test(lead.phone) || !/^\d{7,15}$/.test(lead.phone.replace(/\D/g, '')))
     fail(400, 'INVALID_PHONE', 'Enter a valid phone number.');
@@ -140,26 +143,28 @@ async function createLead(request, env, config) {
   const tokenHash = await hash(accessToken), inputHash = await hash(JSON.stringify([config.eventId, lead]));
   try {
     await env.DB.prepare(`INSERT INTO leads
-      (id,token_hash,request_key,input_hash,email_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      (id,token_hash,request_key,input_hash,email_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,consultation_preference,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(id, tokenHash, requestKey || null, inputHash, lead.email.toLowerCase(), config.eventId,
         lead.firstName, lead.lastName, lead.email, lead.phone, lead.address, lead.city, lead.state, lead.zip,
-        lead.service, lead.timeline, lead.notes, lead.event || config.eventId, now,
+        lead.service, lead.consultationPreference, lead.timeline, lead.notes, lead.event || config.eventId, now,
         String(env.CONSENT_VERSION || '2026-10-21-v1'), config.freeRenders, now).run();
   } catch (error) {
     if (/UNIQUE constraint/i.test(String(error))) {
       if (clientToken && requestKey) {
-        const existing = await env.DB.prepare(`SELECT id,token_hash,request_key,input_hash,remaining_renders FROM leads
+        const existing = await env.DB.prepare(`SELECT id,token_hash,request_key,input_hash,remaining_renders,consultation_preference FROM leads
           WHERE email_normalized=? AND event_id=?`).bind(lead.email.toLowerCase(), config.eventId).first();
         if (existing && existing.token_hash === tokenHash && existing.request_key === requestKey && existing.input_hash === inputHash)
-          return json({ id: existing.id, token: accessToken, remainingRenders: existing.remaining_renders }, 200);
+          return json({ id: existing.id, token: accessToken, remainingRenders: existing.remaining_renders,
+            consultationPreference: existing.consultation_preference }, 200);
       }
       fail(409, 'ALREADY_REGISTERED',
         'This email is already registered for this event. Use the original browser session or ask the booth team for help.');
     }
     throw error;
   }
-  return json({ id, token: accessToken, remainingRenders: config.freeRenders }, 201);
+  return json({ id, token: accessToken, remainingRenders: config.freeRenders,
+    consultationPreference: lead.consultationPreference }, 201);
 }
 async function uploadPhoto(request, env, lead) {
   const contentType = request.headers.get('Content-Type') || '';
@@ -226,7 +231,7 @@ export async function callRenderer(env, photo, settings, fetcher = fetch) {
       const body = new FormData();
       body.append('image[]', new Blob([photo.bytes], { type: photo.mime }), `home.${photo.mime.split('/')[1]}`);
       body.append('model', env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5');
-      body.append('prompt', `Create a realistic exterior repaint visualization of the supplied property photo. Repaint only the ${settings.surface} in ${settings.colorName}, approximately ${settings.colorHex}. Preserve the exact building geometry, perspective, windows, doors, roof, landscaping, weather, lighting and all other surfaces. Preserve shadows and material texture. No text, labels, logo or watermark. This is a color concept, not a construction plan.`);
+      body.append('prompt', `Create a realistic surface-refinishing color visualization of the supplied home or interior photo. Change only the ${settings.surface} to ${settings.colorName}, approximately ${settings.colorHex}. Preserve the exact scene geometry, perspective, layout, fixtures, architecture, surroundings, lighting and all other surfaces. Preserve shadows and material texture. No text, labels, logo or watermark. This is a color concept, not a construction plan.`);
       body.append('n', '1'); body.append('quality', 'low'); body.append('size', '1024x1024'); body.append('output_format', 'jpeg');
       init = { method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body };
     } else fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
@@ -327,11 +332,11 @@ async function exportCsv(request, env) {
   const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM leads').first();
   if (count.count > 10000) fail(413, 'EXPORT_TOO_LARGE', 'Export exceeds 10,000 leads. Use an administrator database export.');
   const { results } = await env.DB.prepare(`SELECT l.id,l.first_name,l.last_name,l.email,l.phone,l.address,l.city,l.state,l.zip,
-    l.service,l.timeline,l.notes,l.event_id,l.event_label,l.consent_at,l.consent_version,l.remaining_renders,l.created_at,
+    l.service,l.consultation_preference,l.timeline,l.notes,l.event_id,l.event_label,l.consent_at,l.consent_version,l.remaining_renders,l.created_at,
     (SELECT COUNT(*) FROM photos p WHERE p.lead_id=l.id AND p.status='ready') AS photo_count,
     (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='completed') AS render_count
     FROM leads l ORDER BY l.created_at DESC LIMIT 10000`).all();
-  const columns = ['id','first_name','last_name','email','phone','address','city','state','zip','service','timeline','notes',
+  const columns = ['id','first_name','last_name','email','phone','address','city','state','zip','service','consultation_preference','timeline','notes',
     'event_id','event_label','consent_at','consent_version','remaining_renders','created_at','photo_count','render_count'];
   const csv = '\uFEFF' + [columns.map(csvCell).join(','), ...results.map(row => columns.map(c => csvCell(row[c])).join(','))].join('\r\n');
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="home-show-leads.csv"' } });
@@ -346,6 +351,15 @@ async function route(request, env, config) {
   if (!config.ready) fail(503, 'NOT_CONFIGURED', 'Live submissions are not enabled yet. Please contact the booth team.');
   if (pathname === '/api/admin/leads.csv' && method === 'GET') return exportCsv(request, env);
   if (pathname === '/api/leads' && method === 'POST') return createLead(request, env, config);
+  const consultation = pathname.match(/^\/api\/leads\/([^/]+)\/consultation$/);
+  if (consultation && UUID.test(consultation[1]) && method === 'POST') {
+    const lead = await leadFor(request, env, consultation[1]);
+    const body = await readJson(request);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || body.consultationPreference !== 'schedule_now')
+      fail(400, 'INVALID_CONSULTATION_PREFERENCE', 'Choose to request a consultation.');
+    await env.DB.prepare("UPDATE leads SET consultation_preference='schedule_now' WHERE id=?").bind(lead.id).run();
+    return json({ consultationPreference: 'schedule_now' });
+  }
   const session = pathname.match(/^\/api\/leads\/([^/]+)\/session$/);
   if (session && UUID.test(session[1]) && method === 'GET') {
     const lead = await leadFor(request, env, session[1]); await settleStale(env, lead.id);
@@ -353,7 +367,7 @@ async function route(request, env, config) {
     const { results: photos } = await env.DB.prepare("SELECT id FROM photos WHERE lead_id=? AND status='ready' ORDER BY created_at").bind(lead.id).all();
     const { results: renders } = await env.DB.prepare(`SELECT id,status,color_name,color_hex,surface,error_code FROM renders
       WHERE lead_id=? ORDER BY created_at`).bind(lead.id).all();
-    return json({ id: lead.id, remainingRenders: current.remaining_renders,
+    return json({ id: lead.id, remainingRenders: current.remaining_renders, consultationPreference: lead.consultation_preference,
       photos: photos.map(photo => ({ id: photo.id, url: `/api/leads/${lead.id}/photos/${photo.id}` })),
       renders: renders.map(render => ({ id: render.id, status: render.status,
         colorName: render.color_name, colorHex: render.color_hex, surface: render.surface,

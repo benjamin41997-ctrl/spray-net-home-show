@@ -2,9 +2,23 @@
 
 The frontend and backend are separate deployments. GitHub Pages hosts public HTML/CSS/JavaScript and cannot hold API keys, run a private API, or safely enforce free-render limits. The included backend targets Cloudflare Workers with D1 and private R2. No backend, database, bucket, provider billing, or credentials have been provisioned by these files.
 
+The current source repository, `benjamin41997-ctrl/spray-net-home-show`, is private. Pages publication remains disabled through the `PUBLISH_PAGES` gate, the backend is undeployed, and `public/config.js` has no API connection. Keep this state until the relevant launch steps are authorized and completed. Running the build or passing tests does not publish the page or make the form live.
+
+## Implemented lead and consultation flow
+
+Visitors choose a service, enter their contact/project details, and either submit the lead alone or submit it with a consultation request. Both options save the same required lead fields and unlock the private color studio. The next screen puts consultation arrangements first; opening the studio is a separate optional action. Photo upload controls appear only inside the studio after the server has accepted the lead.
+
+The server stores `consultationPreference` as `contact_me` or `schedule_now`, and exports it as `consultation_preference`. Here `schedule_now` means the visitor requested help arranging a consultation. It does not indicate a reserved time, live availability, calendar event, or confirmed appointment. A lead-only visitor can subsequently request a consultation from the confirmation screen. The app does not notify the team automatically, so someone must review the saved requests and follow up.
+
+The confirmation screen lets a visitor copy an HTTPS private studio resume link or open the studio immediately. The link has the form `https://<published-page>/#studio=<lead-id>.<visitor-token>`. It contains a bearer credential: anyone receiving it can access the saved project's photos and renders. Treat it as private access, never a public booth QR, analytics value, or marketing link. The app removes the access fragment from the address bar and verifies the lead/token with the configured API; the link cannot choose its own API destination or create a new lead or allowance.
+
+There is no email/SMS sending or email magic-link service. Visitors must save or privately transfer their copied link themselves to use it on another phone later. Browser `sessionStorage` only helps reopen the current tab's session; closing/clearing the tab or clearing a shared device can remove that convenience. Before clearing a booth device, have the visitor save their link. A private link is generated only on an HTTPS page; the local HTTP design preview cannot issue a usable production resume link.
+
 ## 1. Public site settings
 
 Edit `public/config.js` with the actual event label and optional booking and privacy-policy HTTPS links. The initial branding is Spray-Net South Charlotte and the starting visitor allowance is three renders. Do not put keys, administrator tokens, or private endpoint credentials in any file under `public/`.
+
+`bookingUrl` must be a verified business scheduling destination, free of contact details and access credentials in its query. Leave it empty while no actual calendar is configured. The official South Charlotte location page is a quote-request/follow-up page, not verified appointment scheduling. Without a calendar, the confirmation screen records a request and explains that the team will arrange the time. With a calendar, it offers a separate link after the lead is saved; only the team or calendar can confirm an appointment. No calendar API integration is included.
 
 `apiBase` is the API origin, such as `https://spray-net-home-show-api.example.workers.dev`; do not append `/api`. The frontend adds endpoint paths itself. Leave it empty until a real backend is ready. The GitHub Actions build can override this with the public repository variable `API_BASE_URL`.
 
@@ -103,13 +117,13 @@ npx wrangler deploy --config backend/wrangler.jsonc
 
 Call `/api/health` on the returned Worker origin. With D1 schema, R2, origin settings, and salt configured, it should report `ready: true`; with a usable configured renderer it should also report `renderAvailable: true`. Health checks configuration and a lead-table read; they do not perform a paid provider request or prove the provider's credentials work. A real end-to-end rendering test is required.
 
-## 5. Publish the static frontend to personal GitHub Pages
+## 5. Optional future publication to personal GitHub Pages
 
-The requested personal destination is `benjamin41997-ctrl`. Verify the signed-in account and repository access before creating or pushing the repository. The expected project repository name is `spray-net-home-show`, but the final URL must be taken from an actual successful deployment.
+The personal source destination is the private `benjamin41997-ctrl/spray-net-home-show` repository. Keep it private and leave `PUBLISH_PAGES` disabled. Public publication has not been authorized. The remaining steps in this section describe a future launch, not actions already performed. A private repository does not necessarily mean a deployed Pages website is private; verify plan availability and site access separately.
 
 Push this folder as the repository source on `main`. In repository settings, select **Pages → Source → GitHub Actions**. Set **Settings → Secrets and variables → Actions → Variables → New repository variable** named `API_BASE_URL` to the public Worker origin. This URL is public configuration, not a secret. Never add a provider key or administrator token to a Pages build variable or source file.
 
-The included `.github/workflows/deploy.yml` checks source, runs tests, builds `dist/`, uploads a Pages artifact, and deploys it using the official GitHub actions. It runs on pushes to `main` and manual workflow dispatch. An empty `API_BASE_URL` deliberately publishes preview mode.
+The included `.github/workflows/deploy.yml` checks source, runs tests, and builds `dist/` on pushes to `main` and manual workflow dispatch. Pages configuration, artifact upload, and deployment run only when `PUBLISH_PAGES` is exactly `true`. Set that variable only after public launch is authorized. If publication is later enabled with an empty `API_BASE_URL`, the public page remains a design preview rather than a working lead collector.
 
 Confirm the completed deployment URL before printing a QR code. A custom domain can be added later without changing relative asset paths; remember to update `ALLOWED_ORIGINS` to include the new origin.
 
@@ -120,7 +134,7 @@ Confirm the completed deployment URL before printing a QR code. A custom domain 
 Current CSV columns are:
 
 ```text
-id,first_name,last_name,email,phone,address,city,state,zip,service,timeline,notes,event_id,event_label,consent_at,consent_version,remaining_renders,created_at,photo_count,render_count
+id,first_name,last_name,email,phone,address,city,state,zip,service,consultation_preference,timeline,notes,event_id,event_label,consent_at,consent_version,remaining_renders,created_at,photo_count,render_count
 ```
 
 The CSV escapes spreadsheet formulas. It is not yet certified as the exact Spray-Network import schema. Obtain the official/sample import CSV, map and rename columns accordingly, and test a synthetic record before using it with live leads. Downloaded exports contain personal information; store them privately and delete temporary copies under your business's retention policy.
@@ -135,16 +149,20 @@ Email deduplication trims/case-normalizes the address and is scoped to the serve
 
 Before accepting real visitors:
 
-1. Test the deployed site on an actual iPhone and Android phone, including autofill, optional supported contact sharing, photo selection, and small-screen layout.
-2. Confirm the form rejects missing consent and required contact fields, then save a synthetic complete project.
-3. Create and download a real visualization; confirm only the selected project photo is sent to the provider and review output quality. This test incurs provider usage.
+1. After deployment is authorized, test the site on an actual iPhone and Android phone, including autofill, optional supported contact sharing, and small-screen layout. Confirm photo upload and studio controls are unavailable before submission.
+2. Confirm the form rejects missing consent and required contact fields. Save one synthetic lead-only project and a separate lead-plus-consultation project. Both must show the consultation-focused confirmation and unlock the studio. Check the saved/exported consultation preference and verify no appointment is claimed without calendar/team confirmation.
+3. Copy a private studio link, open it on a separate phone/browser, and verify it restores the correct existing lead and remaining allowance. Confirm the fragment is scrubbed and invalid credentials are rejected. Add a photo only after saving the lead, then create and download a real visualization; confirm only the selected project photo is sent to the provider and review output quality. This rendering test incurs provider usage. No email or SMS should be expected.
 4. Complete three renders and confirm a fourth is rejected server-side. Resubmit the same email for the same event and confirm a fresh allowance is not issued.
 5. Check retry behavior on a slow connection, provider errors, and the private image endpoints with a missing or another lead's token.
 6. Export the synthetic lead, map it to the official Spray-Network CSV, and test an import.
-7. On a shared booth device, use **Finish & clear this device for the next visitor** before the next visitor. The visitor session allows access to their private photos and renders; clear it deliberately.
+7. On a shared booth device, have the visitor save/transfer their private studio link, then use **Finish & clear this device for the next visitor**. Confirm the next visitor sees an empty lead form. The bearer link remains usable after clearing the device, so keep it private.
 8. Confirm venue Wi-Fi/cellular access, charged backup device, and a staffed fallback. There is no offline submission queue.
 9. Print and scan the QR code for the actual live deployment. Review follow-up assignments so every lead is contacted within 24 hours after the show's final day.
 
 ## Initial repository visibility
 
 The first version is stored in a private repository. The workflow runs build and tests, and deploys only when the repository variable `PUBLISH_PAGES` is exactly `true`. Enable Pages and this variable only after the public audience has been confirmed. A free GitHub account may require a public repository for Pages. No visitor information or credentials should ever be committed.
+
+## Local flow verification
+
+Local browser integration verified lead-only confirmation, authenticated consultation intent, explicit post-lead studio entry, WebP upload/session reload, shared-device reset, and a second visitor consultation request. Checks used the actual Worker with ephemeral local SQLite/R2 and rendering disabled. No production data, real appointment, or paid provider call was involved. Deployed-provider and real calendar integration remain unverified.

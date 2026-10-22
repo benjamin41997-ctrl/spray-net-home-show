@@ -1,8 +1,17 @@
-# Spray-Net home show color studio
+# Spray-Net home show lead capture
 
-A mobile-first project form and photo color studio for Spray-Net South Charlotte. Visitors can share their project, add photos, and receive three free color visualizations once the private API is configured. The visitor pays nothing; the business pays its rendering and hosting providers.
+A mobile-first lead and consultation-request form for Spray-Net South Charlotte, with an optional private photo color studio after submission. Saving a lead by itself or saving a lead with a consultation request both unlock the same three-render allowance. Visitors can return later to add photos and explore colors once the private API and rendering provider are configured. The visitor pays nothing; the business pays its rendering and hosting providers.
 
-The static frontend runs now as an honest design preview. It does not pretend to save leads or generate images when the API is disconnected. Publishing to GitHub Pages only publishes the frontend; the private backend must be deployed separately before collecting real visitor information.
+The source is stored in the private [benjamin41997-ctrl/spray-net-home-show](https://github.com/benjamin41997-ctrl/spray-net-home-show) repository. Public Pages publication is disabled: `PUBLISH_PAGES` is not enabled. The backend remains undeployed and `apiBase` is empty, so the local frontend is a design preview and does not save leads or generate images. Publishing a static frontend does not deploy the private API.
+
+## Visitor flow
+
+1. Choose a service and approximate project timeline. No photo is needed at the booth.
+2. Enter contact details and the project address, then choose **Submit my project** or **Submit & request a consultation**. Either saves the lead and unlocks the private studio.
+3. The confirmation screen prioritizes arranging a consultation. A consultation request records a follow-up preference; it does not reserve a calendar slot or confirm an appointment. A verified booking-calendar link can be configured separately.
+4. Copy the private studio link to save for later, or open the optional studio immediately. Photos can only be added after the lead is saved. A public booth QR opens the lead form, not an unlocked studio.
+
+Private studio links require the eventual HTTPS page URL. The link's fragment carries the saved lead ID and visitor bearer token; anyone with the link can access that project's photos and visualizations. The app scrubs the fragment from the address bar and verifies the token against the API from trusted site configuration. Save the copied link privately and transfer it to the visitor's phone before clearing a shared booth device. The application does not send email, SMS, or an email magic link. Its `sessionStorage` recovery covers the current browser tab, not automatic access on another device.
 
 ## Run locally
 
@@ -26,18 +35,20 @@ npm run build
 
 ## What is included
 
-- Responsive project, contact, consent, and photo flow with mobile autofill hints.
+- Responsive project, contact, and consent flow with mobile autofill hints; separate consultation confirmation and optional studio screens.
+- Two submission choices with the same studio access, plus a consultation request action after a lead-only submission.
+- Private HTTPS studio resume links and current-tab session recovery; no automated delivery or identity-verification email.
 - Optional saved-contact picker when the visitor's browser supports it and the visitor approves sharing. Other devices use autofill/manual entry.
-- Three photo selections per browser session, each JPEG/PNG/WebP and at most 10 MB.
+- Photo uploads behind a saved lead, with up to three photos shown in the studio, each JPEG/PNG/WebP and at most 10 MB.
 - Color selection, surface selection, private image retrieval, and downloadable completed visualizations.
 - A Cloudflare Worker API with D1 lead records and private R2 photos/renders.
 - Three successful renders per normalized email and server-defined event. Database triggers reserve credits and the daily attempt budget atomically. Failed renders restore visitor credit; daily attempts remain counted because provider costs can still occur.
-- Exact-origin CORS, bearer-protected media, server-only provider credentials, lead creation throttling, and administrator CSV export.
-- GitHub Pages build/test/deployment workflow using official GitHub actions.
+- Exact-origin CORS, bearer-protected sessions/media, server-only provider credentials, retry-safe lead/render requests, lead creation throttling, and administrator CSV export including consultation preference.
+- GitHub build/test workflow using official actions; Pages artifact upload and deployment remain gated by `PUBLISH_PAGES == 'true'`.
 
 ## Connect and publish
 
-Follow [docs/SETUP.md](docs/SETUP.md) for the backend, existing rendering API adapter, public configuration, GitHub Pages, and end-to-end acceptance checks. The requested personal GitHub destination is `benjamin41997-ctrl`; confirm authenticated repository access before pushing. This source folder is the deliverable, and does not itself prove a GitHub repository or live deployment exists.
+Follow [docs/SETUP.md](docs/SETUP.md) for the backend, rendering API adapter, public configuration, optional future GitHub Pages publication, and end-to-end acceptance checks. Keep the existing repository private and Pages disabled until public publication is authorized. The private source repository does not provide a visitor-facing deployment.
 
 All frontend assets use relative paths for GitHub project Pages. Branding and existing portfolio asset provenance are recorded in [docs/MEDIA-SOURCES.md](docs/MEDIA-SOURCES.md).
 
@@ -45,6 +56,6 @@ All frontend assets use relative paths for GitHub project Pages. Branding and ex
 
 The form keeps name, email, phone, project address, and service interest. The provided corporate procedure allows event-detail changes and asks franchisees to consult their business coach for other customization. Confirm the alternative collection flow against that procedure before using it for real leads. The export is a useful administrative CSV, but an exact Spray-Network import mapping still needs a sample import template; no unverified import compatibility is claimed.
 
-Set the actual show label and stable backend event ID, add a business privacy contact/policy and retention procedure, connect and test the API, then generate a QR code for the final live page URL. Test on actual iPhone/Android devices and booth Wi-Fi. Use the finish/clear-device control between visitors on a shared booth device. Follow up within the corporate procedure's 24-hour window after the show ends.
+Set the actual show label and stable backend event ID, add a business privacy contact/policy and retention procedure, and connect and test the API. Keep `bookingUrl` empty until a real consultation calendar is verified; a generic quote-request page is not confirmed scheduling. After publication is authorized and a live HTTPS URL is verified, generate its public booth QR. Test on actual iPhone/Android devices and booth Wi-Fi. Have each visitor save their private studio link before using the finish/clear-device control on a shared booth device. Follow up within the corporate procedure's 24-hour window after the show ends.
 
 Photo uploads and generation are online features. A network outage does not save a lead offline. Keep the existing Microsoft Form or a staffed capture process available as the operational fallback.

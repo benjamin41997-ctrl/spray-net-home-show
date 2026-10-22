@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS leads (
   state TEXT NOT NULL,
   zip TEXT NOT NULL,
   service TEXT NOT NULL,
+  consultation_preference TEXT NOT NULL DEFAULT 'contact_me'
+    CHECK (consultation_preference IN ('contact_me', 'schedule_now')),
   timeline TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   event_label TEXT NOT NULL,
