@@ -1,0 +1,13 @@
+# Copy to .dev.vars for local Wrangler development only. Never commit .dev.vars.
+# Generate two separate long random secrets (at least 32 characters each).
+RATE_LIMIT_SALT=REPLACE_WITH_RANDOM_RATE_LIMIT_SALT
+ADMIN_TOKEN=REPLACE_WITH_SEPARATE_RANDOM_ADMIN_TOKEN
+
+# Option A: direct OpenAI Images API. API billing is separate from ChatGPT.
+# Leave blank until ready to enable real, paid image edits.
+OPENAI_API_KEY=
+
+# Option B: your own render endpoint. HTTPS only; takes precedence over OpenAI.
+# Set both to enable. Never put these values in public/config.js.
+RENDER_API_URL=
+RENDER_API_KEY=

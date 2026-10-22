@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "spray-net-home-show-api",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:4173,http://127.0.0.1:4173,https://YOUR_GITHUB_USERNAME.github.io",
+    "EVENT_ID": "home-show-2026",
+    "FREE_RENDERS": "3",
+    "DAILY_RENDER_LIMIT": "50",
+    "LEADS_PER_IP_HOUR": "30",
+    "CONSENT_VERSION": "2026-10-21-v1",
+    "OPENAI_IMAGE_MODEL": "gpt-image-1.5",
+    "RENDER_TIMEOUT_MS": "90000"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "spray-net-home-show",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "spray-net-home-show-private"
+    }
+  ],
+  "observability": { "enabled": false }
+}

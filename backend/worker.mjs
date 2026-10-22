@@ -1,0 +1,404 @@
+/** Private lead/photo API for a static GitHub Pages frontend.
+ * Runtime: Cloudflare Worker Web APIs + D1 + private R2. No runtime packages.
+ * Images edits reference: https://developers.openai.com/api/reference/resources/images/methods/edit
+ */
+const MAX_PHOTO = 10 * 1024 * 1024;
+const MAX_RESULT = 15 * 1024 * 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export class ApiError extends Error {
+  constructor(status, code, message) { super(message); this.status = status; this.code = code; }
+}
+const fail = (status, code, message) => { throw new ApiError(status, code, message); };
+const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
+  status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
+});
+const int = (value, fallback, max) => /^\d+$/.test(String(value ?? ''))
+  ? Math.min(max, Math.max(0, Number(value))) : fallback;
+const secretReady = (value, length = 16) => typeof value === 'string' && value.length >= length
+  && !/REPLACE_|YOUR_|CHANGEME/i.test(value);
+
+export function configuration(env) {
+  const origins = String(env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const ready = Boolean(env.DB && env.PHOTOS && secretReady(env.RATE_LIMIT_SALT) && origins.length);
+  const customRequested = Boolean(env.RENDER_API_URL || env.RENDER_API_KEY);
+  const custom = Boolean(env.RENDER_API_URL && env.RENDER_API_KEY && validHttps(env.RENDER_API_URL));
+  return { origins, ready, renderAvailable: ready && Boolean(customRequested ? custom : env.OPENAI_API_KEY), custom, customRequested,
+    freeRenders: int(env.FREE_RENDERS, 3, 10), dailyLimit: int(env.DAILY_RENDER_LIMIT, 50, 5000),
+    leadsPerHour: int(env.LEADS_PER_IP_HOUR, 30, 1000),
+    timeout: Math.max(1000, int(env.RENDER_TIMEOUT_MS, 90000, 120000)),
+    eventId: String(env.EVENT_ID || 'home-show-2026') };
+}
+function validHttps(value) {
+  try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password; }
+  catch { return false; }
+}
+export async function hash(value) {
+  const digest = await crypto.subtle.digest('SHA-256', typeof value === 'string' ? new TextEncoder().encode(value) : value);
+  return [...new Uint8Array(digest)].map(n => n.toString(16).padStart(2, '0')).join('');
+}
+function token() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return bytesToBase64(bytes).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+function bearer(request) {
+  const value = request.headers.get('Authorization') || '';
+  const match = value.match(/^Bearer ([A-Za-z0-9_\-]{32,256})$/);
+  if (!match) fail(401, 'UNAUTHORIZED', 'A valid access token is required.');
+  return match[1];
+}
+function text(value, name, max, required = true) {
+  if (typeof value !== 'string') {
+    if (!required && value == null) return '';
+    fail(400, 'INVALID_FIELD', `Please check ${name}.`);
+  }
+  const result = value.trim();
+  if ((required && !result) || result.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(result))
+    fail(400, 'INVALID_FIELD', `Please check ${name}.`);
+  return result;
+}
+export function validateLead(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'INVALID_BODY', 'Please check the form.');
+  if (body.contactConsent !== true) fail(400, 'CONSENT_REQUIRED', 'Please agree to be contacted about your project.');
+  const lead = {
+    firstName: text(body.firstName, 'first name', 80), lastName: text(body.lastName, 'last name', 80),
+    email: text(body.email, 'email', 254), phone: text(body.phone, 'phone number', 30),
+    address: text(body.address, 'street address', 180), city: text(body.city, 'city', 100),
+    state: text(body.state, 'state', 2).toUpperCase(), zip: text(body.zip, 'ZIP code', 10),
+    service: text(body.service, 'service interest', 100), timeline: text(body.timeline, 'timeline', 100, false),
+    notes: text(body.notes, 'project notes', 2000, false), event: text(body.event, 'event', 160, false),
+  };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address.');
+  if (!/^[+()\d\s.\-]+$/.test(lead.phone) || !/^\d{7,15}$/.test(lead.phone.replace(/\D/g, '')))
+    fail(400, 'INVALID_PHONE', 'Enter a valid phone number.');
+  if (!/^[A-Z]{2}$/.test(lead.state) || !/^\d{5}(?:-\d{4})?$/.test(lead.zip))
+    fail(400, 'INVALID_ADDRESS', 'Enter a two-letter state and a valid ZIP code.');
+  return lead;
+}
+export function detectImage(bytes) {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+    && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF'
+    && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  return null;
+}
+export function csvCell(value) {
+  let string = String(value ?? '').replaceAll('\u0000', '');
+  if (/^[\s\uFEFF]*[=+\-@]/.test(string) || /^[\t\r\n]/.test(string)) string = `'${string}`;
+  return `"${string.replaceAll('"', '""')}"`;
+}
+async function readBounded(request, max) {
+  const declared = Number(request.headers.get('Content-Length'));
+  if (declared > max) fail(413, 'TOO_LARGE', 'This file or request is too large.');
+  const reader = request.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks = []; let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      size += value.byteLength;
+      if (size > max) { await reader.cancel(); fail(413, 'TOO_LARGE', 'This file or request is too large.'); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const result = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+  return result;
+}
+async function readJson(request, max = 16 * 1024) {
+  if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))
+    fail(415, 'CONTENT_TYPE', 'Send this request as JSON.');
+  try { return JSON.parse(new TextDecoder().decode(await readBounded(request, max))); }
+  catch (error) { if (error instanceof ApiError) throw error; fail(400, 'INVALID_JSON', 'The request could not be read.'); }
+}
+async function leadFor(request, env, id) {
+  const tokenHash = await hash(bearer(request));
+  const lead = await env.DB.prepare('SELECT * FROM leads WHERE id = ? AND token_hash = ?').bind(id, tokenHash).first();
+  if (!lead) fail(401, 'UNAUTHORIZED', 'Your session is unavailable. Please ask the booth team for help.');
+  return lead;
+}
+async function throttle(request, env, config) {
+  // CF-Connecting-IP is set by Cloudflare, not a trusted client-supplied proxy header.
+  const ip = request.headers.get('CF-Connecting-IP') || 'local-development';
+  const hour = Math.floor(Date.now() / 3600000);
+  const bucket = await hash(`${env.RATE_LIMIT_SALT}:${ip}:${hour}`);
+  const result = await env.DB.prepare(`INSERT INTO rate_limits(bucket, attempts, expires_at) VALUES (?, 1, ?)
+    ON CONFLICT(bucket) DO UPDATE SET attempts = attempts + 1 RETURNING attempts`)
+    .bind(bucket, (hour + 2) * 3600000).first();
+  await env.DB.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(Date.now()).run();
+  if (result.attempts > config.leadsPerHour) fail(429, 'RATE_LIMIT', 'Too many requests. Please ask the booth team for help.');
+}
+async function createLead(request, env, config) {
+  const lead = validateLead(await readJson(request));
+  const clientToken = request.headers.get('X-Lead-Token'), requestKey = request.headers.get('Idempotency-Key');
+  if ((clientToken || requestKey) && (!clientToken || !/^[A-Za-z0-9_-]{43}$/.test(clientToken)
+    || !requestKey || !/^[\w-]{8,128}$/.test(requestKey)))
+    fail(400, 'INVALID_SUBMISSION_KEY', 'A secure session token and submission key are required together.');
+  await throttle(request, env, config);
+  const id = crypto.randomUUID(), accessToken = clientToken || token(), now = new Date().toISOString();
+  const tokenHash = await hash(accessToken), inputHash = await hash(JSON.stringify([config.eventId, lead]));
+  try {
+    await env.DB.prepare(`INSERT INTO leads
+      (id,token_hash,request_key,input_hash,email_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, tokenHash, requestKey || null, inputHash, lead.email.toLowerCase(), config.eventId,
+        lead.firstName, lead.lastName, lead.email, lead.phone, lead.address, lead.city, lead.state, lead.zip,
+        lead.service, lead.timeline, lead.notes, lead.event || config.eventId, now,
+        String(env.CONSENT_VERSION || '2026-10-21-v1'), config.freeRenders, now).run();
+  } catch (error) {
+    if (/UNIQUE constraint/i.test(String(error))) {
+      if (clientToken && requestKey) {
+        const existing = await env.DB.prepare(`SELECT id,token_hash,request_key,input_hash,remaining_renders FROM leads
+          WHERE email_normalized=? AND event_id=?`).bind(lead.email.toLowerCase(), config.eventId).first();
+        if (existing && existing.token_hash === tokenHash && existing.request_key === requestKey && existing.input_hash === inputHash)
+          return json({ id: existing.id, token: accessToken, remainingRenders: existing.remaining_renders }, 200);
+      }
+      fail(409, 'ALREADY_REGISTERED',
+        'This email is already registered for this event. Use the original browser session or ask the booth team for help.');
+    }
+    throw error;
+  }
+  return json({ id, token: accessToken, remainingRenders: config.freeRenders }, 201);
+}
+async function uploadPhoto(request, env, lead) {
+  const contentType = request.headers.get('Content-Type') || '';
+  if (!contentType.toLowerCase().startsWith('multipart/form-data;')) fail(415, 'CONTENT_TYPE', 'Upload a photo using multipart form data.');
+  const raw = await readBounded(request, MAX_PHOTO + 64 * 1024);
+  let form;
+  try { form = await new Response(raw, { headers: { 'Content-Type': contentType } }).formData(); }
+  catch { fail(400, 'INVALID_UPLOAD', 'The photo upload could not be read.'); }
+  const file = form.get('photo');
+  if (!file || typeof file.arrayBuffer !== 'function' || file.size === 0) fail(400, 'PHOTO_REQUIRED', 'Choose a photo to upload.');
+  if (file.size > MAX_PHOTO) fail(413, 'PHOTO_TOO_LARGE', 'Photos must be 10 MB or smaller.');
+  const bytes = new Uint8Array(await file.arrayBuffer()), mime = detectImage(bytes);
+  if (!mime || file.type !== mime) fail(415, 'INVALID_IMAGE', 'Please upload a JPEG, PNG, or WebP photo.');
+  const contentHash = await hash(bytes);
+  let row = await env.DB.prepare('SELECT id,object_key FROM photos WHERE lead_id=? AND content_hash=?').bind(lead.id, contentHash).first();
+  let inserted = false;
+  if (!row) {
+    const id = crypto.randomUUID(), key = `photos/${lead.id}/${id}`;
+    try {
+      await env.DB.prepare('INSERT INTO photos (id,lead_id,object_key,content_hash,mime_type,byte_length,created_at) VALUES (?,?,?,?,?,?,?)')
+        .bind(id, lead.id, key, contentHash, mime, bytes.length, new Date().toISOString()).run();
+      row = { id, object_key: key }; inserted = true;
+    } catch (error) {
+      // Concurrent retries can race; reuse the same row and repair its object with identical bytes.
+      row = await env.DB.prepare('SELECT id,object_key FROM photos WHERE lead_id=? AND content_hash=?').bind(lead.id, contentHash).first();
+      if (!row && /PHOTO_LIMIT/.test(String(error))) fail(429, 'PHOTO_LIMIT', 'This session has reached its eight-photo limit.');
+      if (!row) throw error;
+    }
+  }
+  // A failed R2 write leaves metadata available for a retry of this exact file,
+  // rather than accidentally deleting a concurrent successful upload's metadata.
+  await env.PHOTOS.put(row.object_key, bytes, { httpMetadata: { contentType: mime } });
+  await env.DB.prepare("UPDATE photos SET status='ready' WHERE id=?").bind(row.id).run();
+  return json({ id: row.id, url: `/api/leads/${lead.id}/photos/${row.id}` }, inserted ? 201 : 200);
+}
+function bytesToBase64(bytes) {
+  let result = ''; const block = 0x8000;
+  for (let i = 0; i < bytes.length; i += block) result += String.fromCharCode(...bytes.subarray(i, i + block));
+  return btoa(result);
+}
+function decodeResult(base64, mime) {
+  if (typeof base64 !== 'string' || base64.length > Math.ceil(MAX_RESULT / 3) * 4
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 !== 0)
+    fail(502, 'INVALID_RENDER', 'The rendering service returned an unsupported image.');
+  let bytes;
+  try { bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0)); }
+  catch { fail(502, 'INVALID_RENDER', 'The rendering service returned an unsupported image.'); }
+  const actual = detectImage(bytes);
+  if (!actual || actual !== mime || bytes.length > MAX_RESULT) fail(502, 'INVALID_RENDER', 'The rendering service returned an unsupported image.');
+  return { bytes, mime };
+}
+export async function callRenderer(env, photo, settings, fetcher = fetch) {
+  const config = configuration(env), controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeout);
+  try {
+    let url, init;
+    if (config.custom) {
+      url = env.RENDER_API_URL;
+      init = { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RENDER_API_KEY}` },
+        body: JSON.stringify({ image_base64: bytesToBase64(photo.bytes), mime_type: photo.mime,
+          color_name: settings.colorName, color_hex: settings.colorHex, surface: settings.surface }) };
+    } else if (!config.customRequested && env.OPENAI_API_KEY) {
+      url = 'https://api.openai.com/v1/images/edits';
+      const body = new FormData();
+      body.append('image[]', new Blob([photo.bytes], { type: photo.mime }), `home.${photo.mime.split('/')[1]}`);
+      body.append('model', env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5');
+      body.append('prompt', `Create a realistic exterior repaint visualization of the supplied property photo. Repaint only the ${settings.surface} in ${settings.colorName}, approximately ${settings.colorHex}. Preserve the exact building geometry, perspective, windows, doors, roof, landscaping, weather, lighting and all other surfaces. Preserve shadows and material texture. No text, labels, logo or watermark. This is a color concept, not a construction plan.`);
+      body.append('n', '1'); body.append('quality', 'low'); body.append('size', '1024x1024'); body.append('output_format', 'jpeg');
+      init = { method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body };
+    } else fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
+    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error' });
+    if (!response.ok) fail(502, 'RENDER_FAILED', 'The preview could not be generated. Your preview credit has been restored.');
+    const body = JSON.parse(new TextDecoder().decode(await readBounded(response, Math.ceil(MAX_RESULT / 3) * 4 + 65536)));
+    // Never fetch arbitrary provider-returned URLs (SSRF/privacy). Custom APIs must return inline base64.
+    if (config.custom) return decodeResult(body.image_base64, body.mime_type);
+    return decodeResult(body.data?.[0]?.b64_json, 'image/jpeg');
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    fail(502, error?.name === 'AbortError' ? 'RENDER_TIMEOUT' : 'RENDER_FAILED',
+      'The preview could not be generated. Your preview credit has been restored.');
+  } finally { clearTimeout(timeout); }
+}
+async function settleStale(env, leadId) {
+  // Longer than the enforced upstream timeout. This also recovers credits after a Worker is interrupted.
+  const cutoff = new Date(Date.now() - 5 * 60000).toISOString();
+  await env.DB.prepare(`UPDATE renders SET status='failed',error_code='RENDER_INTERRUPTED',updated_at=?
+    WHERE lead_id=? AND status='pending' AND updated_at < ?`).bind(new Date().toISOString(), leadId, cutoff).run();
+}
+async function renderResponse(env, leadId, render, status = 200) {
+  const lead = await env.DB.prepare('SELECT remaining_renders FROM leads WHERE id=?').bind(leadId).first();
+  return json({ id: render.id, status: render.status, remainingRenders: lead.remaining_renders,
+    ...(render.status === 'completed' ? { imageUrl: `/api/leads/${leadId}/renders/${render.id}/image` } : {}),
+    ...(render.status === 'failed' ? { error: { code: render.error_code || 'RENDER_FAILED', message: 'Preview failed. Your credit has been restored; please try again.' } } : {}),
+  }, status);
+}
+async function createRender(request, env, config, lead) {
+  if (!config.renderAvailable) fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
+  const body = await readJson(request);
+  if (!body || typeof body !== 'object') fail(400, 'INVALID_BODY', 'Check your preview settings.');
+  const photoId = text(body.photoId, 'photo', 36), colorName = text(body.colorName, 'color name', 80),
+    colorHex = text(body.colorHex, 'color', 7), surface = text(body.surface, 'surface', 80);
+  if (!UUID.test(photoId) || !/^#[0-9a-f]{6}$/i.test(colorHex)) fail(400, 'INVALID_SETTINGS', 'Check your photo and color selection.');
+  const requestKey = request.headers.get('Idempotency-Key');
+  if (!requestKey || !/^[\w-]{8,128}$/.test(requestKey)) fail(400, 'IDEMPOTENCY_REQUIRED', 'A unique preview request key is required.');
+  const inputHash = await hash(JSON.stringify([photoId, colorName, colorHex.toUpperCase(), surface]));
+  await settleStale(env, lead.id);
+  const existing = await env.DB.prepare('SELECT * FROM renders WHERE lead_id=? AND request_key=?').bind(lead.id, requestKey).first();
+  if (existing) {
+    if (existing.input_hash !== inputHash) fail(409, 'KEY_REUSED', 'Use a new request key for different preview settings.');
+    return renderResponse(env, lead.id, existing, existing.status === 'pending' ? 202 : 200);
+  }
+  const photo = await env.DB.prepare("SELECT * FROM photos WHERE id=? AND lead_id=? AND status='ready'").bind(photoId, lead.id).first();
+  if (!photo) fail(404, 'PHOTO_NOT_FOUND', 'Choose an uploaded photo from this session.');
+  const stored = await env.PHOTOS.get(photo.object_key);
+  if (!stored) fail(404, 'PHOTO_NOT_FOUND', 'Please upload your photo again.');
+  const id = crypto.randomUUID(), now = new Date().toISOString();
+  try {
+    await env.DB.prepare(`INSERT INTO renders
+      (id,lead_id,photo_id,request_key,input_hash,status,day,daily_limit,color_name,color_hex,surface,created_at,updated_at)
+      VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?)`)
+      .bind(id, lead.id, photoId, requestKey, inputHash, now.slice(0, 10), config.dailyLimit, colorName, colorHex, surface, now, now).run();
+  } catch (error) {
+    if (/NO_CREDITS/.test(String(error))) fail(429, 'NO_CREDITS', 'You have used the free previews for this event. Your project details are saved.');
+    if (/DAILY_CAP/.test(String(error))) fail(429, 'DAILY_CAP', 'Today’s preview limit has been reached. Please ask the booth team about your project.');
+    if (/UNIQUE constraint/.test(String(error))) {
+      const duplicate = await env.DB.prepare('SELECT * FROM renders WHERE lead_id=? AND request_key=?').bind(lead.id, requestKey).first();
+      if (duplicate?.input_hash === inputHash) return renderResponse(env, lead.id, duplicate, duplicate.status === 'pending' ? 202 : 200);
+      fail(409, 'KEY_REUSED', 'Use a new request key for different preview settings.');
+    }
+    throw error;
+  }
+  const key = `renders/${lead.id}/${id}`;
+  try {
+    const result = await callRenderer(env, { bytes: new Uint8Array(await stored.arrayBuffer()), mime: photo.mime_type }, { colorName, colorHex, surface });
+    await env.PHOTOS.put(key, result.bytes, { httpMetadata: { contentType: result.mime } });
+    const update = await env.DB.prepare(`UPDATE renders SET status='completed',object_key=?,mime_type=?,updated_at=? WHERE id=? AND status='pending'`)
+      .bind(key, result.mime, new Date().toISOString(), id).run();
+    if (update.meta.changes !== 1) {
+      await env.PHOTOS.delete(key);
+      fail(409, 'RENDER_INTERRUPTED', 'The preview was interrupted. Your credit has been restored.');
+    }
+  } catch (error) {
+    await env.DB.prepare(`UPDATE renders SET status='failed',error_code=?,updated_at=? WHERE id=? AND status='pending'`)
+      .bind(error instanceof ApiError ? error.code : 'RENDER_FAILED', new Date().toISOString(), id).run();
+    // R2 writes can complete before a D1 failure; best-effort cleanup without logging private keys.
+    try { await env.PHOTOS.delete(key); } catch { /* orphan cleaned by retention tooling */ }
+    if (error instanceof ApiError) throw error;
+    fail(502, 'RENDER_FAILED', 'The preview could not be saved. Your preview credit has been restored.');
+  }
+  return renderResponse(env, lead.id, { id, status: 'completed' }, 201);
+}
+async function media(env, leadId, id, kind) {
+  const row = await env.DB.prepare(kind === 'photos'
+    ? "SELECT object_key,mime_type FROM photos WHERE id=? AND lead_id=? AND status='ready'"
+    : "SELECT object_key,mime_type FROM renders WHERE id=? AND lead_id=? AND status='completed'")
+    .bind(id, leadId).first();
+  if (!row) fail(404, 'NOT_FOUND', 'This image is unavailable.');
+  const object = await env.PHOTOS.get(row.object_key);
+  if (!object) fail(404, 'NOT_FOUND', 'This image is unavailable.');
+  return new Response(object.body, { headers: { 'Content-Type': row.mime_type, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store' } });
+}
+async function exportCsv(request, env) {
+  if (!secretReady(env.ADMIN_TOKEN, 32)) fail(503, 'ADMIN_UNAVAILABLE', 'Lead export is not configured.');
+  if (await hash(bearer(request)) !== await hash(env.ADMIN_TOKEN)) fail(401, 'UNAUTHORIZED', 'A valid administrator token is required.');
+  const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM leads').first();
+  if (count.count > 10000) fail(413, 'EXPORT_TOO_LARGE', 'Export exceeds 10,000 leads. Use an administrator database export.');
+  const { results } = await env.DB.prepare(`SELECT l.id,l.first_name,l.last_name,l.email,l.phone,l.address,l.city,l.state,l.zip,
+    l.service,l.timeline,l.notes,l.event_id,l.event_label,l.consent_at,l.consent_version,l.remaining_renders,l.created_at,
+    (SELECT COUNT(*) FROM photos p WHERE p.lead_id=l.id AND p.status='ready') AS photo_count,
+    (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='completed') AS render_count
+    FROM leads l ORDER BY l.created_at DESC LIMIT 10000`).all();
+  const columns = ['id','first_name','last_name','email','phone','address','city','state','zip','service','timeline','notes',
+    'event_id','event_label','consent_at','consent_version','remaining_renders','created_at','photo_count','render_count'];
+  const csv = '\uFEFF' + [columns.map(csvCell).join(','), ...results.map(row => columns.map(c => csvCell(row[c])).join(','))].join('\r\n');
+  return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="home-show-leads.csv"' } });
+}
+async function route(request, env, config) {
+  const { pathname } = new URL(request.url), method = request.method;
+  if (pathname === '/api/health' && method === 'GET') {
+    let ready = config.ready;
+    if (ready) { try { await env.DB.prepare('SELECT id FROM leads LIMIT 1').first(); } catch { ready = false; } }
+    return json({ ready, renderAvailable: ready && config.renderAvailable, freeRenders: config.freeRenders });
+  }
+  if (!config.ready) fail(503, 'NOT_CONFIGURED', 'Live submissions are not enabled yet. Please contact the booth team.');
+  if (pathname === '/api/admin/leads.csv' && method === 'GET') return exportCsv(request, env);
+  if (pathname === '/api/leads' && method === 'POST') return createLead(request, env, config);
+  const session = pathname.match(/^\/api\/leads\/([^/]+)\/session$/);
+  if (session && UUID.test(session[1]) && method === 'GET') {
+    const lead = await leadFor(request, env, session[1]); await settleStale(env, lead.id);
+    const current = await env.DB.prepare('SELECT remaining_renders FROM leads WHERE id=?').bind(lead.id).first();
+    const { results: photos } = await env.DB.prepare("SELECT id FROM photos WHERE lead_id=? AND status='ready' ORDER BY created_at").bind(lead.id).all();
+    const { results: renders } = await env.DB.prepare(`SELECT id,status,color_name,color_hex,surface,error_code FROM renders
+      WHERE lead_id=? ORDER BY created_at`).bind(lead.id).all();
+    return json({ id: lead.id, remainingRenders: current.remaining_renders,
+      photos: photos.map(photo => ({ id: photo.id, url: `/api/leads/${lead.id}/photos/${photo.id}` })),
+      renders: renders.map(render => ({ id: render.id, status: render.status,
+        colorName: render.color_name, colorHex: render.color_hex, surface: render.surface,
+        ...(render.status === 'completed' ? { imageUrl: `/api/leads/${lead.id}/renders/${render.id}/image` } : {}),
+        ...(render.status === 'failed' ? { error: { code: render.error_code || 'RENDER_FAILED', message: 'Preview failed. Your credit has been restored.' } } : {}),
+      })),
+    });
+  }
+  const match = pathname.match(/^\/api\/leads\/([^/]+)\/(photos|renders)(?:\/([^/]+))?(\/image)?$/);
+  if (!match || !UUID.test(match[1]) || (match[3] && !UUID.test(match[3]))) fail(404, 'NOT_FOUND', 'This endpoint does not exist.');
+  const [, leadId, kind, id, suffix] = match, lead = await leadFor(request, env, leadId);
+  if (method === 'POST' && !id) return kind === 'photos' ? uploadPhoto(request, env, lead) : createRender(request, env, config, lead);
+  if (method === 'GET' && id && kind === 'photos' && !suffix) return media(env, leadId, id, kind);
+  if (method === 'GET' && id && kind === 'renders') {
+    if (suffix) return media(env, leadId, id, kind);
+    await settleStale(env, leadId);
+    const render = await env.DB.prepare('SELECT * FROM renders WHERE id=? AND lead_id=?').bind(id, leadId).first();
+    if (!render) fail(404, 'NOT_FOUND', 'This preview is unavailable.');
+    return renderResponse(env, leadId, render);
+  }
+  fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
+}
+export default {
+  async fetch(request, env) {
+    const config = configuration(env), origin = request.headers.get('Origin');
+    const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', Vary: 'Origin' };
+    if (origin && !config.origins.includes(origin)) return json({ error: { code: 'ORIGIN_DENIED', message: 'This website is not allowed to use the service.' } }, 403, headers);
+    if (origin) headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Expose-Headers'] = 'Content-Disposition';
+    let response;
+    try {
+      if (request.method === 'OPTIONS') response = new Response(null, { status: 204, headers: {
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization,Content-Type,Idempotency-Key,X-Lead-Token', 'Access-Control-Max-Age': '600' } });
+      else {
+        // Use primary reads for lead creation followed immediately by uploads/renders.
+        const bindings = env.DB?.withSession ? { ...env, DB: env.DB.withSession('first-primary') } : env;
+        response = await route(request, bindings, config);
+      }
+    } catch (error) {
+      const safe = error instanceof ApiError ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again or contact the booth team.');
+      response = json({ error: { code: safe.code, message: safe.message } }, safe.status);
+    }
+    const result = new Response(response.body, response);
+    for (const [key, value] of Object.entries(headers)) result.headers.set(key, value);
+    return result;
+  },
+};
