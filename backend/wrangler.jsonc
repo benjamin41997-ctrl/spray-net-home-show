@@ -12,7 +12,15 @@
     "LEADS_PER_IP_HOUR": "300",
     "CONSENT_VERSION": "2026-10-21-v1",
     "OPENAI_IMAGE_MODEL": "gpt-image-1.5",
-    "RENDER_TIMEOUT_MS": "90000"
+    "RENDER_TIMEOUT_MS": "90000",
+    "OUTLOOK_CALENDAR_USER": "ben.hessler@spray-net.com",
+    "BOOKING_DURATION_MINUTES": "90",
+    "BOOKING_BUFFER_MINUTES": "30",
+    "BOOKING_PROVIDER": "internal",
+    "BOOKING_WORK_DAYS": "0,1,2,3,4,5,6",
+    "BOOKING_WORK_START": "08:00",
+    "BOOKING_WORK_END": "19:00",
+    "BOOKING_START_DATE": "2026-10-26"
   },
   "d1_databases": [
     {

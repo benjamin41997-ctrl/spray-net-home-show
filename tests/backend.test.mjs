@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import worker, { validateLead, detectImage, csvCell, configuration, callRenderer, hash } from '../backend/worker.mjs';
+import { createHash } from 'node:crypto';
+import worker, { validateLead, normalizePhone, detectImage, csvCell, configuration, callRenderer, hash } from '../backend/worker.mjs';
 
 const schema = readFileSync(new URL('../backend/schema.sql', import.meta.url), 'utf8');
 const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0xff, 0xd9]);
@@ -12,15 +13,20 @@ const sample = () => ({ firstName: 'Alex', lastName: 'Homeowner', email: 'Alex@e
   address: '12 Example St', city: 'Tampa', state: 'FL', zip: '33602', service: 'Exterior siding',
   timeline: 'Within 3 months', notes: '', event: 'October Home Show', contactConsent: true });
 
-function database() {
-  const sqlite = new DatabaseSync(':memory:'); sqlite.exec(schema);
-  return { sqlite, prepare(sql) {
+function database(initialSchema = schema) {
+  const sqlite = new DatabaseSync(':memory:'); sqlite.exec(initialSchema);
+  return { sqlite, async batch(statements) {
+    sqlite.exec('BEGIN');
+    try { const results = statements.map(statement => statement._runSync()); sqlite.exec('COMMIT'); return results; }
+    catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+  }, prepare(sql) {
     const statement = sqlite.prepare(sql); let bindings = [];
     return {
       bind(...values) { bindings = values; return this; },
       async first() { return statement.get(...bindings) || null; },
       async all() { return { results: statement.all(...bindings) }; },
       async run() { const result = statement.run(...bindings); return { meta: { changes: Number(result.changes) } }; },
+      _runSync() { const result = statement.run(...bindings); return { meta: { changes: Number(result.changes) } }; },
     };
   } };
 }
@@ -39,6 +45,9 @@ function environment(extra = {}) {
   return { DB: database(), PHOTOS: bucket(), ALLOWED_ORIGINS: origin,
     RATE_LIMIT_SALT: 'a-unique-random-salt-for-tests-32', ADMIN_TOKEN: 'a-unique-administrator-secret-for-tests-32',
     EVENT_ID: 'show-1', FREE_RENDERS: '3', DAILY_RENDER_LIMIT: '50', LEADS_PER_IP_HOUR: '30',
+    MICROSOFT_TENANT_ID: 'organizations', MICROSOFT_CLIENT_ID: 'test-client',
+    MICROSOFT_CLIENT_SECRET: 'test-client-secret-32-characters-long', MICROSOFT_REFRESH_TOKEN: 'test-refresh-token',
+    BOOKING_DURATION_MINUTES: '90', BOOKING_BUFFER_MINUTES: '30',
     RENDER_API_URL: 'https://renderer.example/api', RENDER_API_KEY: 'test-server-secret', ...extra };
 }
 async function request(env, path, { method = 'GET', body, token, key, headers = {} } = {}) {
@@ -56,23 +65,66 @@ async function lead(env, data = sample()) {
   assert.equal(response.status, 201); return response.json();
 }
 async function photo(env, person, bytes = jpeg) {
+  // Upload-focused tests begin with an already server-confirmed mocked Outlook event.
+  if (!env.DB.sqlite.prepare('SELECT lead_id FROM consultation_bookings WHERE lead_id=?').get(person.id)) confirmBooking(env, person);
   const form = new FormData(); form.append('photo', new Blob([bytes], { type: 'image/jpeg' }), 'home.jpg');
   const response = await request(env, `/api/leads/${person.id}/photos`, { method: 'POST', body: form, token: person.token });
   assert.equal(response.status, 201); return response.json();
 }
 const settings = photoId => ({ photoId, colorName: 'Warm white', colorHex: '#F2EFE5', surface: 'siding' });
 function renderedResponse() { return new Response(JSON.stringify({ image_base64: base64Jpeg, mime_type: 'image/jpeg' })); }
+const calendarEvents = new Map();
+const calendarUnavailable = new Set();
+let graphCreates = 0;
+let calendarViewEvents = [];
+function confirmBooking(env, person, status = 'confirmed') {
+  const id = `mock-event-${crypto.randomUUID()}`, start = '2026-11-02T15:00:00.000Z', end = '2026-11-02T16:30:00.000Z';
+  const transactionId = crypto.randomUUID(), requestKey = crypto.randomUUID();
+  const digest = value => createHash('sha256').update(value).digest('hex');
+  const calendarKey = digest(JSON.stringify([env.MICROSOFT_TENANT_ID, env.MICROSOFT_CLIENT_ID,
+    env.OUTLOOK_CALENDAR_USER || 'me', digest(env.MICROSOFT_REFRESH_TOKEN)]));
+  env.DB.sqlite.prepare(`INSERT INTO consultation_bookings
+    (lead_id,calendar_key,status,graph_event_id,transaction_id,start_at,end_at,time_zone,request_key,input_hash,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(lead_id) DO UPDATE SET status=excluded.status,graph_event_id=excluded.graph_event_id,
+    transaction_id=excluded.transaction_id,start_at=excluded.start_at,end_at=excluded.end_at`)
+    .run(person.id, calendarKey, status, status === 'pending' ? null : id, transactionId, start, end, 'America/New_York', requestKey, 'test-input-hash', new Date().toISOString());
+  calendarEvents.set(id, { id, isCancelled: false, isOrganizer: true, transactionId,
+    start: { dateTime: start, timeZone: 'UTC' }, end: { dateTime: end, timeZone: 'UTC' }, attendees: [] });
+  return id;
+}
+async function calendarFetch(url, init, fallback) {
+  const target = new URL(url);
+  if (target.hostname === 'login.microsoftonline.com') return new Response(JSON.stringify({
+    access_token: 'test-access-token', refresh_token: 'test-rotated-refresh', expires_in: 3600 }));
+  if (target.hostname === 'graph.microsoft.com') {
+    const id = decodeURIComponent(target.pathname.split('/').at(-1));
+    if (calendarUnavailable.has(id)) return new Response(JSON.stringify({ error: { code: 'ServiceUnavailable' } }), { status: 503 });
+    if (calendarEvents.has(id)) return new Response(JSON.stringify(calendarEvents.get(id)));
+    if (target.pathname.endsWith('/calendarView')) return new Response(JSON.stringify({ value: calendarViewEvents }));
+    if (target.pathname.endsWith('/events') && init?.method === 'POST') {
+      graphCreates++; const event = { ...JSON.parse(init.body), id: `created-test-event-${crypto.randomUUID()}`,
+        isCancelled: false, isOrganizer: true };
+      calendarEvents.set(event.id, event); return new Response(JSON.stringify(event), { status: 201 });
+    }
+    throw new Error(`Unexpected mocked Graph route ${target.pathname}`);
+  }
+  if (fallback) return fallback(url, init);
+  throw new Error('Unexpected outbound request in backend tests.');
+}
+globalThis.fetch = (url, init) => calendarFetch(url, init);
 async function withFetch(fetcher, work) {
-  const previous = globalThis.fetch; globalThis.fetch = fetcher;
+  const previous = globalThis.fetch; globalThis.fetch = (url, init) => calendarFetch(url, init, fetcher);
   try { return await work(); } finally { globalThis.fetch = previous; }
 }
 
 test('readiness fails closed for missing bindings, secrets, schema; CORS requires exact origins', async () => {
   const unconfigured = await request({}, '/api/health', { headers: { Origin: '' } });
-  assert.deepEqual(await unconfigured.json(), { ready: false, renderAvailable: false, freeRenders: 3 });
+  assert.deepEqual(await unconfigured.json(), { ready: false, renderAvailable: false, freeRenders: 3,
+    bookingAvailable: false, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
   assert.equal(configuration(environment({ RATE_LIMIT_SALT: 'REPLACE_WITH_RANDOM_RATE_LIMIT_SALT' })).ready, false);
   const env = environment();
-  assert.deepEqual(await (await request(env, '/api/health')).json(), { ready: true, renderAvailable: true, freeRenders: 3 });
+  assert.deepEqual(await (await request(env, '/api/health')).json(), { ready: true, renderAvailable: true, freeRenders: 3,
+    bookingAvailable: true, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
   const denied = await request(env, '/api/health', { headers: { Origin: `${origin}.evil.example` } });
   assert.equal(denied.status, 403); assert.equal(denied.headers.get('Access-Control-Allow-Origin'), null);
   const allowed = await request(env, '/api/health'); assert.equal(allowed.headers.get('Access-Control-Allow-Origin'), origin);
@@ -81,17 +133,287 @@ test('readiness fails closed for missing bindings, secrets, schema; CORS require
   assert.equal((await (await request(env, '/api/health')).json()).ready, false);
 });
 
-test('lead validation requires consent, complete contact details and a US ZIP', () => {
+test('lead validation requires only name, phone and consent, checking optional fields when present', () => {
   assert.throws(() => validateLead({ ...sample(), contactConsent: false }), /agree/);
-  assert.throws(() => validateLead({ ...sample(), address: '' }), /street address/);
+  const minimal = validateLead({ name: '  Ana de la Cruz  ', phone: '(704) 555-0199', contactConsent: true });
+  assert.equal(minimal.firstName, 'Ana'); assert.equal(minimal.lastName, 'de la Cruz');
+  for (const field of ['email', 'address', 'city', 'state', 'zip', 'service']) assert.equal(minimal[field], '');
+  assert.equal(validateLead({ fullName: 'Prince', phone: '7045550199', contactConsent: true }).lastName, '');
+  assert.throws(() => validateLead({ phone: '7045550199', contactConsent: true }), /name/);
   assert.throws(() => validateLead({ ...sample(), email: 'bad' }), /email/);
   assert.throws(() => validateLead({ ...sample(), phone: '111' }), /phone/);
   assert.throws(() => validateLead({ ...sample(), zip: 'abc' }), /ZIP/);
+  assert.throws(() => validateLead({ ...sample(), state: 'North Carolina' }), /state/);
+  assert.throws(() => validateLead({ ...sample(), address: 'a'.repeat(181) }), /street address/);
+  assert.equal(normalizePhone('(704) 555-0199'), normalizePhone('+1 704-555-0199'));
   assert.equal(validateLead({ ...sample(), state: 'fl' }).state, 'FL');
   assert.equal(validateLead(sample()).consultationPreference, 'contact_me');
   for (const preference of ['booked', 'confirmed', 'contact', '', null, true, ['schedule_now']]) {
     assert.throws(() => validateLead({ ...sample(), consultationPreference: preference }), /schedule a consultation/);
   }
+});
+
+test('compact captures save separate blank-email leads, allow shared optional email and track mobile/tablet mode', async () => {
+  const env = environment();
+  const people = [
+    { name: 'Mobile Visitor', phone: '7045550101', captureMode: 'mobile' },
+    { fullName: 'Tablet Visitor', phone: '7045550102', captureMode: 'tablet' },
+    { firstName: 'Same', phone: '7045550103', email: 'household@example.com' },
+    { firstName: 'Household', phone: '7045550104', email: 'household@example.com' },
+  ];
+  for (const person of people) {
+    const saved = await lead(env, { ...person, contactConsent: true });
+    assert.equal(saved.visualizerUnlocked, false); assert.deepEqual(saved.booking, { status: 'none' });
+    const session = await (await request(env, `/api/leads/${saved.id}/session`, { token: saved.token })).json();
+    assert.equal(session.lead.phone, person.phone); assert.equal(session.lead.email, person.email || '');
+    assert.equal(session.visualizerUnlocked, false); assert.deepEqual(session.photos, []);
+    assert.equal(env.DB.sqlite.prepare('SELECT capture_mode FROM leads WHERE id=?').get(saved.id).capture_mode, person.captureMode || 'mobile');
+  }
+  const duplicate = await request(env, '/api/leads', { method: 'POST', body: { name: 'Changed name', phone: '+1 (704) 555-0101', email: 'changed@example.com', contactConsent: true } });
+  assert.equal(duplicate.status, 409); assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 4);
+  const csv = await (await request(env, '/api/admin/leads.csv', { token: env.ADMIN_TOKEN })).text();
+  assert.ok(csv.includes('"capture_mode"')); assert.ok(csv.includes('"tablet"'));
+});
+
+test('phone identity migration preserves duplicate-phone legacy leads, tokens and dependent media without destructive rebuilds', async () => {
+  const legacySchema = schema
+    .replace('  lead_identity TEXT NOT NULL,\n  phone_normalized TEXT NOT NULL,', '  email_normalized TEXT NOT NULL,')
+    .replace(/  capture_mode TEXT[^\n]+\n/, '')
+    .replace('UNIQUE (lead_identity, event_id)', 'UNIQUE (email_normalized, event_id)')
+    .replace('CREATE INDEX IF NOT EXISTS leads_phone_event ON leads(phone_normalized, event_id);', '');
+  const env = environment({ DB: database(legacySchema) });
+  const owners = [];
+  for (let n = 0; n < 2; n++) {
+    const person = { id: crypto.randomUUID(), token: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url') };
+    person.tokenHash = await hash(person.token); owners.push(person);
+    env.DB.sqlite.prepare(`INSERT INTO leads (id,token_hash,email_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,event_label,consent_at,consent_version,remaining_renders,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(person.id, person.tokenHash, `legacy${n}@example.com`, 'show-1', 'Legacy', String(n), `legacy${n}@example.com`,
+      n ? '+1 704\u00a0555\t0199' : '(704) 555-0199', '12 Prior Street', '', '', '', '', 'Old show', '2026-10-01', 'old-consent', 3, '2026-10-01');
+  }
+  const photoId = crypto.randomUUID(), renderId = crypto.randomUUID(), photoKey = `photos/${owners[0].id}/${photoId}`, renderKey = `renders/${owners[0].id}/${renderId}`;
+  env.DB.sqlite.prepare(`INSERT INTO photos (id,lead_id,object_key,content_hash,status,mime_type,byte_length,created_at)
+    VALUES (?,?,?,?,'ready','image/jpeg',?,'2026-10-01')`).run(photoId, owners[0].id, photoKey, 'legacy-photo-hash', jpeg.length);
+  env.DB.sqlite.prepare(`INSERT INTO renders (id,lead_id,photo_id,request_key,input_hash,status,day,daily_limit,color_name,color_hex,surface,created_at,updated_at)
+    VALUES (?,?,?,?,?,'pending','2026-10-01',50,'White','#FFFFFF','siding','2026-10-01','2026-10-01')`)
+    .run(renderId, owners[0].id, photoId, 'legacy-render-key', 'legacy-input');
+  env.DB.sqlite.prepare("UPDATE renders SET status='completed',object_key=?,mime_type='image/jpeg' WHERE id=?").run(renderKey, renderId);
+  await env.PHOTOS.put(photoKey, jpeg); await env.PHOTOS.put(renderKey, jpeg);
+  env.DB.sqlite.exec(readFileSync(new URL('../backend/migrations/0002_phone_identity_booking.sql', import.meta.url), 'utf8'));
+  for (const owner of owners) {
+    const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(owner.id);
+    assert.equal(row.token_hash, owner.tokenHash); assert.equal(row.phone_normalized, '17045550199');
+    assert.equal(row.lead_identity, `legacy:${owner.id}`); assert.equal(row.capture_mode, 'unknown');
+    const recovered = await request(env, `/api/leads/${owner.id}/session`, { token: owner.token });
+    assert.equal(recovered.status, 200); assert.equal((await recovered.json()).lead.name, `Legacy ${owners.indexOf(owner)}`);
+  }
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM photos').get().n, 1);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM renders').get().n, 1); assert.equal(env.PHOTOS.files.size, 2);
+  assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(owners[0].id).remaining_renders, 2);
+  assert.deepEqual(env.DB.sqlite.prepare('PRAGMA foreign_key_check').all(), []);
+  const duplicate = await request(env, '/api/leads', { method: 'POST', body: { name: 'New capture', phone: '+1 7045550199', contactConsent: true } });
+  assert.equal(duplicate.status, 409);
+  await lead(env, { name: 'New phone-only visitor', phone: '7045550201', contactConsent: true });
+});
+
+test('all studio routes require an Outlook-confirmed booking and relock on cancellation or verification outage', async () => {
+  const env = environment(), person = await lead(env, { name: 'Phone Only', phone: '7045550202', contactConsent: true });
+  let providerCalls = 0;
+  const fakePhoto = crypto.randomUUID(), fakeRender = crypto.randomUUID();
+  const studioRoutes = (photoId, renderId) => [
+    [`/api/leads/${person.id}/photos`, { method: 'POST', body: (() => { const form = new FormData(); form.append('photo', new Blob([jpeg], { type: 'image/jpeg' }), 'home.jpg'); return form; })() }],
+    [`/api/leads/${person.id}/photos/${photoId}`, {}],
+    [`/api/leads/${person.id}/renders`, { method: 'POST', body: settings(photoId), key: crypto.randomUUID() }],
+    [`/api/leads/${person.id}/renders/${renderId}`, {}],
+    [`/api/leads/${person.id}/renders/${renderId}/image`, {}],
+  ];
+  async function blocked(routes, expectedStatus = 403) {
+    for (const [path, options] of routes) {
+      const response = await request(env, path, { ...options, token: person.token });
+      assert.equal(response.status, expectedStatus, path);
+      if (expectedStatus === 403) assert.equal((await response.json()).error.code, 'BOOKING_REQUIRED');
+    }
+  }
+  await withFetch(async () => { providerCalls++; return renderedResponse(); }, async () => {
+    const sessionPath = `/api/leads/${person.id}/session`;
+    const before = await (await request(env, sessionPath, { token: person.token })).json();
+    assert.equal(before.visualizerUnlocked, false); assert.deepEqual(before.booking, { status: 'none' });
+    await blocked(studioRoutes(fakePhoto, fakeRender));
+    await request(env, `/api/leads/${person.id}/consultation`, { method: 'POST', body: { consultationPreference: 'schedule_now' }, token: person.token });
+    await blocked(studioRoutes(fakePhoto, fakeRender));
+    confirmBooking(env, person, 'pending'); await blocked(studioRoutes(fakePhoto, fakeRender));
+    assert.equal(providerCalls, 0); assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
+    assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id).remaining_renders, 3);
+    const eventId = confirmBooking(env, person);
+    const booked = await (await request(env, sessionPath, { token: person.token })).json();
+    assert.equal(booked.booking.status, 'confirmed'); assert.equal(booked.visualizerUnlocked, true);
+    const uploaded = await photo(env, person);
+    const render = await (await request(env, `/api/leads/${person.id}/renders`, { method: 'POST', body: settings(uploaded.id), key: crypto.randomUUID(), token: person.token })).json();
+    assert.equal(render.status, 'completed'); assert.equal(providerCalls, 1);
+    calendarUnavailable.add(eventId); await blocked(studioRoutes(uploaded.id, render.id), 503);
+    assert.equal((await request(env, sessionPath, { token: person.token })).status, 503); calendarUnavailable.delete(eventId);
+    calendarEvents.get(eventId).isCancelled = true;
+    const cancelled = await (await request(env, sessionPath, { token: person.token })).json();
+    assert.equal(cancelled.booking.status, 'cancelled'); assert.equal(cancelled.visualizerUnlocked, false);
+    assert.deepEqual(cancelled.photos, []); assert.deepEqual(cancelled.renders, []);
+    await blocked(studioRoutes(uploaded.id, render.id));
+    assert.equal(providerCalls, 1); assert.equal(env.DB.sqlite.prepare('SELECT attempts FROM daily_attempts').get().attempts, 1);
+    assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id).remaining_renders, 2);
+  });
+});
+
+test('new-device authenticated session reconciles a pending Outlook transaction by reads alone and fails closed on read outage', async () => {
+  const env = environment(), person = await lead(env), eventId = confirmBooking(env, person, 'pending');
+  const sessionPath = `/api/leads/${person.id}/session`, beforeCreates = graphCreates;
+  let renderCalls = 0;
+  await withFetch(async () => { renderCalls++; return renderedResponse(); }, async () => {
+    try {
+      // A new device has only the private lead token, never the original client booking request key.
+      const pending = await (await request(env, sessionPath, { token: person.token })).json();
+      assert.equal(pending.booking.status, 'pending'); assert.equal(pending.visualizerUnlocked, false);
+      calendarViewEvents = [calendarEvents.get(eventId)];
+      const recovered = await request(env, sessionPath, { token: person.token }); assert.equal(recovered.status, 200);
+      const confirmed = await recovered.json(); assert.equal(confirmed.booking.status, 'confirmed'); assert.equal(confirmed.visualizerUnlocked, true);
+      const row = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
+      assert.equal(row.status, 'confirmed'); assert.equal(row.graph_event_id, eventId);
+
+      // Even a saved event ID is insufficient if Outlook cannot verify a pending record.
+      env.DB.sqlite.prepare("UPDATE consultation_bookings SET status='pending' WHERE lead_id=?").run(person.id);
+      calendarUnavailable.add(eventId);
+      const outage = await request(env, sessionPath, { token: person.token }); assert.equal(outage.status, 503);
+      assert.equal(env.DB.sqlite.prepare('SELECT status FROM consultation_bookings WHERE lead_id=?').get(person.id).status, 'pending');
+      assert.equal(graphCreates, beforeCreates); assert.equal(renderCalls, 0);
+      assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id).remaining_renders, 3);
+      assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
+    } finally { calendarViewEvents = []; calendarUnavailable.delete(eventId); }
+  });
+});
+
+test('booking route requires a project address after compact lead capture and validates optional booking email before Graph', async () => {
+  const env = environment(), person = await lead(env, { name: 'Compact Lead', phone: '7045550203', contactConsent: true });
+  for (const body of [{}, { address: '' }, { address: 'x'.repeat(181) }]) {
+    const response = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', body, token: person.token });
+    assert.equal(response.status, 400); assert.equal((await response.json()).error.code, 'INVALID_ADDRESS');
+  }
+  const email = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', body: { address: '12 Test Street', email: 'invalid' }, token: person.token });
+  assert.equal(email.status, 400); assert.equal((await email.json()).error.code, 'INVALID_EMAIL');
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n, 0);
+});
+
+test('authenticated phone-only lead chooses a real adapter slot and unlocks only after verified mocked Outlook confirmation', async () => {
+  const env = environment(), person = await lead(env, { fullName: 'Booking Visitor', phone: '7045550204', contactConsent: true });
+  const base = `/api/leads/${person.id}/consultation`, beforeCreates = graphCreates;
+  assert.equal((await request(env, `${base}/slots`)).status, 401);
+  const slots = await request(env, `${base}/slots`, { token: person.token }); assert.equal(slots.status, 200);
+  const choices = await slots.json(); assert.equal(choices.bookingAvailable, true); assert.ok(choices.slots.length > 0);
+  assert.equal(choices.durationMinutes, 90); assert.equal(choices.bufferMinutes, 30);
+  const options = { method: 'POST', token: person.token, key: crypto.randomUUID(), body: {
+    start: choices.slots[0].start, address: '  44 Test Project Lane  ' } };
+  const booked = await request(env, `${base}/book`, options); assert.equal(booked.status, 200);
+  const result = await booked.json(); assert.equal(result.booking.status, 'confirmed'); assert.equal(result.visualizerUnlocked, true);
+  assert.equal(Date.parse(result.booking.end) - Date.parse(result.booking.start), 90 * 60000); assert.equal(graphCreates, beforeCreates + 1);
+  const repeated = await request(env, `${base}/book`, options); assert.equal(repeated.status, 200);
+  assert.deepEqual(await repeated.json(), result); assert.equal(graphCreates, beforeCreates + 1);
+  const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id);
+  assert.equal(row.address, '44 Test Project Lane'); assert.equal(row.email, ''); assert.equal(row.consultation_preference, 'schedule_now');
+  assert.equal(row.remaining_renders, 3); assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
+  const stored = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
+  assert.equal(stored.status, 'confirmed'); assert.equal(stored.attendee_email, '');
+  const event = calendarEvents.get(stored.graph_event_id); assert.equal(event.attendees, undefined);
+  assert.match(event.body.content, /44 Test Project Lane/);
+  const session = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
+  assert.equal(session.visualizerUnlocked, true); assert.equal(session.lead.address, '44 Test Project Lane');
+});
+
+test('internal scheduler dispatch confirms in D1 without Microsoft credentials and staff can block, list and cancel privately', async () => {
+  const env = environment({ BOOKING_PROVIDER: 'internal', MICROSOFT_TENANT_ID: '', MICROSOFT_CLIENT_ID: '',
+    MICROSOFT_CLIENT_SECRET: '', MICROSOFT_REFRESH_TOKEN: '' });
+  let externalCalls = 0;
+  await withFetch(async () => { externalCalls++; throw new Error('Internal scheduling must not contact a provider.'); }, async () => {
+    const health = await (await request(env, '/api/health')).json();
+    assert.equal(health.ready, true); assert.equal(health.bookingAvailable, true);
+    const person = await lead(env, { name: 'Internal Visitor', phone: '7045550301', contactConsent: true });
+    const slotsPath = `/api/leads/${person.id}/consultation/slots`;
+    const initial = await (await request(env, slotsPath, { token: person.token })).json(); assert.ok(initial.slots.length > 0);
+    const blockedSlot = initial.slots[0], blockBody = { start: blockedSlot.start, end: blockedSlot.end, note: 'Team unavailable' };
+    const protectedRoutes = [
+      ['/api/admin/bookings', {}], ['/api/admin/blocks', { method: 'POST', body: blockBody }],
+      [`/api/admin/blocks/${crypto.randomUUID()}`, { method: 'DELETE' }],
+      [`/api/admin/bookings/${person.id}/cancel`, { method: 'POST' }],
+    ];
+    for (const token of [undefined, 'forged-administrator-token-with-enough-characters', person.token]) {
+      for (const [path, options] of protectedRoutes) assert.equal((await request(env, path, { ...options, token })).status, 401);
+    }
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM booking_time_blocks').get().n, 0);
+    const created = await request(env, '/api/admin/blocks', { method: 'POST', body: blockBody, token: env.ADMIN_TOKEN });
+    assert.equal(created.status, 201); const block = await created.json();
+    assert.match(block.id, /^[0-9a-f-]{36}$/); assert.equal(block.start, blockedSlot.start); assert.equal(block.note, 'Team unavailable');
+    const duplicate = await request(env, '/api/admin/blocks', { method: 'POST', body: blockBody, token: env.ADMIN_TOKEN });
+    assert.equal(duplicate.status, 201); assert.equal((await duplicate.json()).id, block.id);
+    const remaining = await (await request(env, slotsPath, { token: person.token })).json();
+    assert.equal(remaining.slots.some(slot => slot.start === blockedSlot.start), false); assert.ok(remaining.slots.length > 0);
+    const chosen = remaining.slots[0];
+    const booked = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', token: person.token,
+      key: crypto.randomUUID(), body: { start: chosen.start, address: '17 Internal Project Road' } });
+    assert.equal(booked.status, 200); const booking = await booked.json();
+    assert.equal(booking.booking.status, 'confirmed'); assert.equal(booking.visualizerUnlocked, true);
+    const stored = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
+    assert.equal(stored.graph_event_id, null); assert.match(stored.calendar_key, /^internal:/);
+    const listedResponse = await request(env, '/api/admin/bookings', { token: env.ADMIN_TOKEN });
+    assert.equal(listedResponse.headers.get('Cache-Control'), 'no-store'); const listed = await listedResponse.json();
+    const appointment = listed.bookings.find(item => item.leadId === person.id);
+    assert.equal(appointment.name, 'Internal Visitor'); assert.equal(appointment.phone, '7045550301');
+    assert.equal(appointment.email, ''); assert.equal(appointment.address, '17 Internal Project Road');
+    assert.equal(appointment.status, 'confirmed'); assert.equal(appointment.start, chosen.start); assert.equal(appointment.timeZone, 'America/New_York');
+    assert.equal(listed.blocks.some(item => item.id === block.id), true);
+    for (const secret of [person.token, env.ADMIN_TOKEN, env.RATE_LIMIT_SALT]) assert.equal(JSON.stringify(listed).includes(secret), false);
+    const conflict = await request(env, '/api/admin/blocks', { method: 'POST', token: env.ADMIN_TOKEN,
+      body: { start: chosen.start, end: chosen.end, note: 'Cannot block a confirmed appointment' } });
+    assert.equal(conflict.status, 409);
+    const cancelled = await request(env, `/api/admin/bookings/${person.id}/cancel`, { method: 'POST', token: env.ADMIN_TOKEN });
+    assert.equal(cancelled.status, 200); assert.deepEqual(await cancelled.json(), { leadId: person.id, status: 'cancelled', visualizerUnlocked: false });
+    const session = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
+    assert.equal(session.visualizerUnlocked, false); assert.equal(session.booking.status, 'cancelled');
+    const denied = await request(env, `/api/leads/${person.id}/renders`, { method: 'POST', token: person.token,
+      key: crypto.randomUUID(), body: settings(crypto.randomUUID()) }); assert.equal(denied.status, 403);
+    for (let retry = 0; retry < 2; retry++) {
+      const removed = await request(env, `/api/admin/blocks/${block.id}`, { method: 'DELETE', token: env.ADMIN_TOKEN });
+      assert.equal(removed.status, 200); assert.deepEqual(await removed.json(), { id: block.id, deleted: true });
+    }
+    const final = await (await request(env, '/api/admin/bookings', { token: env.ADMIN_TOKEN })).json();
+    assert.deepEqual(final.bookings, []); assert.deepEqual(final.blocks, []);
+    assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id).remaining_renders, 3);
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0); assert.equal(externalCalls, 0);
+    const preflight = await request(env, '/api/admin/blocks', { method: 'OPTIONS' });
+    assert.match(preflight.headers.get('Access-Control-Allow-Methods'), /DELETE/);
+  });
+});
+
+test('staff internal endpoints reject Graph mode, malformed blocks and unavailable administrator authorization', async () => {
+  const graph = environment();
+  const unavailable = await request({ ...graph, ADMIN_TOKEN: '' }, '/api/admin/bookings', { token: graph.ADMIN_TOKEN });
+  assert.equal(unavailable.status, 503);
+  const wrongProvider = await request(graph, '/api/admin/bookings', { token: graph.ADMIN_TOKEN });
+  assert.equal(wrongProvider.status, 409); assert.equal((await wrongProvider.json()).error.code, 'INTERNAL_SCHEDULER_REQUIRED');
+  const env = environment({ BOOKING_PROVIDER: 'internal' });
+  const start = new Date(Date.now() + 86400000).toISOString(), end = new Date(Date.now() + 90000000).toISOString();
+  for (const body of [null, [], {}, { start, end: start }, { start, end: '2026-02-30T15:00:00.000Z' },
+    { start: start.replace('Z', ''), end }, { start, end, note: 'x'.repeat(501) }]) {
+    const response = await request(env, '/api/admin/blocks', { method: 'POST', body, token: env.ADMIN_TOKEN });
+    assert.equal(response.status, 400); const error = await response.json();
+    assert.equal(JSON.stringify(error).includes(env.ADMIN_TOKEN), false);
+  }
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM booking_time_blocks').get().n, 0);
+});
+
+test('internal scheduling block migration is additive and leaves existing lead authentication and media intact', async () => {
+  const env = environment(), person = await lead(env), uploaded = await photo(env, person);
+  const before = env.DB.sqlite.prepare('SELECT token_hash,remaining_renders FROM leads WHERE id=?').get(person.id);
+  env.DB.sqlite.exec('DROP TABLE booking_time_blocks');
+  env.DB.sqlite.exec(readFileSync(new URL('../backend/migrations/0003_internal_schedule_blocks.sql', import.meta.url), 'utf8'));
+  assert.deepEqual(env.DB.sqlite.prepare('SELECT token_hash,remaining_renders FROM leads WHERE id=?').get(person.id), before);
+  assert.equal((await request(env, `/api/leads/${person.id}/session`, { token: person.token })).status, 200);
+  assert.equal(env.DB.sqlite.prepare('SELECT id FROM photos WHERE id=?').get(uploaded.id).id, uploaded.id);
+  assert.equal(env.PHOTOS.files.size, 1); assert.deepEqual(env.DB.sqlite.prepare('PRAGMA foreign_key_check').all(), []);
 });
 
 test('consultation preference saves, recovers and exports intent for both choices without claiming a booking', async () => {
@@ -100,7 +422,7 @@ test('consultation preference saves, recovers and exports intent for both choice
   assert.equal(invalid.status, 400); assert.equal((await invalid.json()).error.code, 'INVALID_CONSULTATION_PREFERENCE');
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 0);
   for (const preference of ['contact_me', 'schedule_now']) {
-    const person = await lead(env, { ...sample(), email: `${preference}@example.com`, consultationPreference: preference });
+    const person = await lead(env, { ...sample(), phone: preference === 'contact_me' ? '7045550101' : '7045550102', email: `${preference}@example.com`, consultationPreference: preference });
     assert.equal(person.consultationPreference, preference);
     const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id);
     assert.equal(row.consultation_preference, preference); assert.equal(row.remaining_renders, 3);
@@ -122,7 +444,7 @@ test('consultation preference saves, recovers and exports intent for both choice
 });
 
 test('saved lead can request a consultation idempotently without another lead, booking or render charge', async () => {
-  const env = environment(), person = await lead(env), other = await lead(env, { ...sample(), email: 'another@example.com' });
+  const env = environment(), person = await lead(env), other = await lead(env, { ...sample(), phone: '7045550102', email: 'another@example.com' });
   const path = `/api/leads/${person.id}/consultation`, body = { consultationPreference: 'schedule_now' };
   let providerCalls = 0;
   await withFetch(async () => { providerCalls++; return renderedResponse(); }, async () => {
@@ -149,12 +471,12 @@ test('saved lead can request a consultation idempotently without another lead, b
   });
 });
 
-test('lead submission stores a hashed token, deduplicates normalized email per server event, records consent', async () => {
+test('lead submission stores a hashed token, deduplicates normalized phone per server event, records consent', async () => {
   const env = environment(), person = await lead(env);
   const row = env.DB.sqlite.prepare('SELECT * FROM leads').get();
   assert.equal(row.token_hash, await hash(person.token)); assert.notEqual(row.token_hash, person.token);
   assert.equal(row.consent_version, '2026-10-21-v1'); assert.ok(row.consent_at);
-  const duplicate = await request(env, '/api/leads', { method: 'POST', body: { ...sample(), email: 'alex@EXAMPLE.com', event: 'changed by visitor' } });
+  const duplicate = await request(env, '/api/leads', { method: 'POST', body: { ...sample(), phone: '+1 555-123-4567', email: 'different@example.com', event: 'changed by visitor' } });
   assert.equal(duplicate.status, 409); assert.equal((await duplicate.json()).token, undefined);
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 1);
   const nextEvent = await lead({ ...env, EVENT_ID: 'show-2' }); assert.notEqual(nextEvent.id, person.id);
@@ -217,7 +539,7 @@ test('post-lead studio requires a saved lead and its bearer on every session, ph
     assert.equal(count('daily_attempts'), 0); assert.equal(env.PHOTOS.files.size, 0); assert.equal(providerCalls, 0);
 
     // Saving a lead enables its own session; an additional saved lead still cannot access this visitor's studio.
-    const person = await lead(env), other = await lead(env, { ...sample(), email: 'another@example.com' });
+    const person = await lead(env), other = await lead(env, { ...sample(), phone: '7045550102', email: 'another@example.com' });
     const uploaded = await photo(env, person);
     const routes = protectedRoutes(person.id, uploaded.id, crypto.randomUUID());
     await denied(routes, [undefined, forgedToken, other.token]);
@@ -258,7 +580,7 @@ test('private photo upload checks magic bytes, MIME, size, ownership and eight-p
   assert.equal((await request(env, `/api/leads/${person.id}/photos`, { method: 'POST', body: ninth, token: person.token })).status, 429);
 });
 
-test('session metadata recovers saved photos, render history and budget without contact details', async () => {
+test('authenticated session recovers its own lead, confirmed booking, photos, render history and budget without bearer leakage', async () => {
   const env = environment(), person = await lead(env), uploaded = await photo(env, person);
   let render;
   await withFetch(async () => renderedResponse(), async () => {
@@ -271,7 +593,9 @@ test('session metadata recovers saved photos, render history and budget without 
   assert.equal(recovered.remainingRenders, 2); assert.deepEqual(recovered.photos, [uploaded]);
   assert.equal(recovered.renders[0].id, render.id); assert.equal(recovered.renders[0].colorHex, '#F2EFE5');
   assert.equal(recovered.renders[0].imageUrl, render.imageUrl);
-  for (const value of [sample().email, sample().phone, sample().address, person.token]) assert.equal(JSON.stringify(recovered).includes(value), false);
+  assert.equal(recovered.lead.email, sample().email); assert.equal(recovered.lead.phone, sample().phone);
+  assert.equal(recovered.lead.address, sample().address); assert.equal(recovered.booking.status, 'confirmed');
+  assert.equal(recovered.visualizerUnlocked, true); assert.equal(JSON.stringify(recovered).includes(person.token), false);
 });
 
 test('concurrent render requests reserve credits atomically and enforce three total', async () => {

@@ -5,100 +5,80 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#003965">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="Tell Spray-Net South Charlotte about your cabinet or exterior project and request a consultation. Unlock three color visualizations to explore later.">
-  <title>Your project starts here | Spray-Net South Charlotte</title>
+  <meta name="description" content="Meet Spray-Net South Charlotte. Leave your name and phone, then schedule your consultation to unlock your private color visualizer.">
+  <title>Let’s talk about your home | Spray-Net South Charlotte</title>
   <link rel="icon" href="./assets/favicon.png">
   <link rel="stylesheet" href="./styles.css">
   <script src="./config.js" defer></script>
-  <script src="./app.js" type="module"></script>
+  <script type="module" src="./app.js"></script>
 </head>
-<body>
-  <a class="skip" href="#project">Skip to your project</a>
-  <div class="connection-banner" id="connection-banner" role="status">Design preview · live lead capture and rendering are not connected yet.</div>
-  <header class="site-header wrap">
-    <a class="brand" href="./" aria-label="Spray-Net South Charlotte home"><img src="./assets/logo.png" alt="Spray-Net — Custom Chemistry. Smarter Painting." width="216" height="66"><span data-location>South Charlotte</span></a>
-    <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#inspiration">Get inspired</a><a class="button small" href="#project">Request a quote <span aria-hidden="true">↗</span></a></nav>
+<body data-mode="mobile">
+  <a class="skip" href="#lead-name">Skip to the form</a>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Spray-Net South Charlotte"><img src="./assets/logo.png" alt="Spray-Net — Custom Chemistry. Smarter Painting." width="204" height="61"><span>South Charlotte</span></a>
+    <span class="show-tag">LET’S MAKE IT YOUR HOME.</span>
+    <button id="header-reset" class="reset-button tablet-only" type="button">Next visitor <span aria-hidden="true">↻</span></button>
   </header>
-  <main>
-    <section class="hero wrap" aria-labelledby="hero-title">
-      <div class="hero-copy"><p class="eyebrow"><span class="orange-line"></span> MEET YOUR LOCAL SPRAY-NET TEAM.</p>
-        <h1 id="hero-title">Your next project.<br><span>Let’s talk.</span></h1>
-        <p class="hero-description">Thinking about your cabinets or exterior?<br>Tell us about your project and let’s arrange a consultation.</p>
-        <a href="#project" class="button hero-button">Tell us about your project <span aria-hidden="true">→</span></a>
-        <div class="offer-line"><span class="gift" aria-hidden="true">✦</span><p><strong>A thank-you for connecting: <span data-render-count>3</span> free visualizations</strong><br><span>Unlock with your submission. Explore later on your phone.</span></p></div>
-      </div>
-      <div class="hero-visual">
-        <div class="comparison" id="comparison">
-          <img class="comparison-base" src="./assets/exterior-after.webp" alt="Spray-Net portfolio exterior after coating" width="1800" height="1350" fetchpriority="high">
-          <div class="comparison-before" id="before-layer"><img src="./assets/exterior-before.webp" alt="The same exterior before coating" width="1800" height="1350"></div>
-          <div class="comparison-label before">BEFORE</div><div class="comparison-label after">NOW</div>
-          <div class="comparison-divider" id="comparison-divider"><span aria-hidden="true">‹ ›</span></div>
-          <input id="comparison-range" type="range" min="0" max="100" value="40" aria-label="Compare before and after exterior photos">
-          <div class="comparison-caption"><span class="caption-dot"></span> SAME HOME. A WHOLE NEW FEELING.</div>
+  <main class="page-layout">
+    <aside class="booth-intro tablet-only" aria-label="Welcome to Spray-Net">
+      <p class="eyebrow"><span></span> MEET YOUR LOCAL TEAM</p>
+      <h1>A new look.<br>The home<br><em>you love.</em></h1>
+      <p class="booth-description">Cabinets, exteriors, and the possibilities in between. Tell us a little about your project.</p>
+      <div class="booth-photo"><img src="./assets/kitchen-after.webp" alt="A navy cabinet transformation from the Spray-Net portfolio" width="1200" height="800"><span>Custom Chemistry. Smarter Painting.</span></div>
+      <div class="public-qr-card"><div id="public-mobile-qr" class="qr public-qr"></div><div><strong>Prefer your phone?</strong><p>Scan to fill this out on your own device.</p><a id="mobile-version-link" href="?mode=mobile">Open the mobile version ↗</a></div></div>
+    </aside>
+    <article class="capture-card" aria-label="Your project">
+      <div class="mobile-heading" id="page-intro"><p class="eyebrow">A QUICK HELLO. A NEW POSSIBILITY.</p><h1>Let’s talk about<br><em>your home.</em></h1><p>Leave your details and our South Charlotte team will be in touch.</p></div>
+      <p id="connection-status" class="connection-status" role="status">Checking the form connection…</p>
+      <p id="form-alert" class="form-alert" role="alert" hidden></p>
+      <section id="lead-panel" aria-labelledby="form-title">
+        <div class="form-title-row"><h2 id="form-title">Nice to meet you.</h2><span>Name + phone are all you need.</span></div>
+        <button id="share-contact" class="saved-contact" type="button" hidden>Use my saved contact details</button>
+        <form id="lead-form" novalidate>
+          <div class="lead-fields">
+            <div class="field"><label for="lead-name">Name <span class="required-note">Required</span></label><input id="lead-name" name="name" autocomplete="name" placeholder="Your name" maxlength="160" required></div>
+            <div class="field"><label for="lead-phone">Phone <span class="required-note">Required</span></label><input id="lead-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="Your phone number" maxlength="30" required></div>
+            <div class="field"><label for="lead-address">Project address <span>Optional</span></label><input id="lead-address" name="address" autocomplete="street-address" placeholder="Street, city, and ZIP" maxlength="180"></div>
+            <div class="field"><label for="lead-email">Email <span>Optional</span></label><input id="lead-email" name="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" maxlength="254"></div>
+          </div>
+          <input class="honeypot" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <p class="consent-note">By submitting, you’re asking Spray-Net South Charlotte to contact you about your project. <button class="text-button" id="privacy-button" type="button">Privacy & photo use</button></p>
+          <button class="button full" id="submit-lead" type="submit">Submit <span aria-hidden="true">→</span></button>
+          <p class="form-footnote">You can submit after just your name and phone.</p>
+        </form>
+      </section>
+      <section id="saved-panel" aria-labelledby="saved-title" hidden>
+        <div class="receipt"><span class="saved-check" aria-hidden="true">✓</span><div><h2 id="saved-title" tabindex="-1">Thanks. You’re on our list.</h2><p id="saved-message">Your details are saved with our team.</p></div></div>
+        <div id="booking-invitation" class="booking-invitation">
+          <span class="perk-symbol" aria-hidden="true">✦</span><p class="eyebrow">YOUR NEXT STEP</p><h2>Want access to<br>our visualizer?</h2><p>Schedule your consultation to unlock <strong><span data-free-renders>3</span> free color visualizations</strong>. Explore your home’s possibilities on your phone, whenever you’re ready.</p>
+          <button id="show-booking" class="button full" type="button">Schedule consultation now <span aria-hidden="true">→</span></button>
+          <p class="booking-note">Visualizer access starts after your booking is confirmed.</p>
         </div>
-        <div class="visual-note"><span class="note-icon" aria-hidden="true">↔</span><span>Slide to see the transformation</span><span class="note-count">SPRAY-NET PORTFOLIO</span></div>
-        <span class="floating-tag">Your transformation starts with a conversation.</span>
-      </div>
-    </section>
-    <section class="steps-strip" id="how-it-works" aria-label="How it works"><div class="wrap steps-inner"><p>BIG POSSIBILITIES.<br><strong>Three simple steps.</strong></p><div><span>01</span><p>Tell us your plans<small>Choose your project & share your details</small></p></div><div><span>02</span><p>Plan your consultation<small id="scheduling-summary">Request a consultation with our team</small></p></div><div><span>03</span><p>Explore later<small>Unlock <span data-render-count>3</span> visualizations after submitting</small></p></div></div></section>
-    <section class="project-section wrap" id="project" aria-labelledby="project-title">
-      <div class="section-intro"><p class="eyebrow">LET’S GET YOUR PROJECT STARTED</p><h2 id="project-title">Tell us what you have <em>in mind.</em></h2><p>A quick introduction now. A conversation about the possibilities next.</p></div>
-      <div class="project-layout">
-        <aside class="project-aside"><div class="aside-photo"><img src="./assets/kitchen-after.webp" alt="Navy cabinet transformation from the Spray-Net portfolio" loading="lazy" width="1200" height="800"><span>YOUR INSPIRATION STARTS HERE</span></div><h3>A new look.<br>The home you love.</h3><p>Connect with your local team about your cabinets, exterior, doors, or windows.</p><ul><li>Share your project in a few quick steps</li><li>Request a consultation with our team</li><li>Explore colors later, on your own time</li></ul><a id="portfolio-link" href="https://benjamin41997-ctrl.github.io/spray-net-portfolio/" target="_blank" rel="noopener">Explore the Spray-Net portfolio <span aria-hidden="true">↗</span></a></aside>
-        <div class="form-shell">
-          <ol class="form-progress" aria-label="Your progress"><li class="active" data-progress="0" aria-current="step"><span>1</span> Your project</li><li data-progress="1"><span>2</span> Your details</li><li data-progress="2"><span>3</span> Next steps</li></ol>
-          <p class="form-alert" id="form-alert" role="alert" hidden></p>
-          <form id="lead-form" novalidate>
-            <section class="form-step" data-step="0" aria-labelledby="step-project-title">
-              <div class="step-heading"><p class="eyebrow">STEP 01 / 03</p><h3 id="step-project-title" tabindex="-1">What’s your next project?</h3><p>Choose a space you’d love to transform.</p></div>
-              <fieldset class="service-fieldset"><legend class="sr-only">Service interest</legend><div class="service-grid"><label class="service-card"><input type="radio" name="service" value="Kitchen cabinets" required><span class="service-icon" aria-hidden="true">▥</span><strong>Kitchen cabinets</strong><small>A fresh take on your favorite room</small><span class="radio-mark" aria-hidden="true"></span></label><label class="service-card"><input type="radio" name="service" value="Home exterior"><span class="service-icon" aria-hidden="true">⌂</span><strong>Home exterior</strong><small>Curb appeal, reimagined</small><span class="radio-mark" aria-hidden="true"></span></label><label class="service-card"><input type="radio" name="service" value="Doors and windows"><span class="service-icon" aria-hidden="true">▦</span><strong>Doors & windows</strong><small>Details that make a difference</small><span class="radio-mark" aria-hidden="true"></span></label><label class="service-card"><input type="radio" name="service" value="Other / not sure"><span class="service-icon" aria-hidden="true">✧</span><strong>Let’s explore</strong><small>I’d like some help deciding</small><span class="radio-mark" aria-hidden="true"></span></label></div></fieldset>
-              <div class="field"><label for="timeline">When are you thinking?</label><select id="timeline" name="timeline"><option value="Exploring ideas">Just exploring ideas</option><option value="Within 1 month">Within a month</option><option value="1–3 months">In the next 1–3 months</option><option value="3–6 months">In the next 3–6 months</option><option value="6+ months">Later down the road</option></select></div>
-              <div class="form-actions"><p>No photos needed to submit your project.</p><button class="button" type="button" id="to-details">Next: your details <span aria-hidden="true">→</span></button></div>
-            </section>
-            <section class="form-step" data-step="1" aria-labelledby="step-details-title" hidden>
-              <div class="step-heading"><p class="eyebrow">STEP 02 / 03</p><h3 id="step-details-title" tabindex="-1">Nice to meet you.</h3><p>Where’s your project, and how can our local team reach you?</p></div>
-              <button class="contact-share" id="share-contact" type="button" hidden><span aria-hidden="true">⊕</span> Use my saved contact details <small>Choose your own contact card</small></button>
-              <div class="field-grid"><div class="field"><label for="first-name">First name</label><input id="first-name" name="firstName" autocomplete="given-name" maxlength="80" required></div><div class="field"><label for="last-name">Last name</label><input id="last-name" name="lastName" autocomplete="family-name" maxlength="80" required></div></div>
-              <div class="field-grid"><div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required></div><div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="30" required></div></div>
-              <div class="field"><label for="address">Project street address</label><input id="address" name="address" autocomplete="address-line1" maxlength="180" required></div>
-              <div class="address-grid"><div class="field"><label for="city">City</label><input id="city" name="city" autocomplete="address-level2" maxlength="100" required></div><div class="field"><label for="state">State</label><select id="state" name="state" autocomplete="address-level1" required><option value="">Select</option><option value="NC">NC</option><option value="SC">SC</option><option value="VA">VA</option><option value="GA">GA</option><option value="TN">TN</option><option value="FL">FL</option></select></div><div class="field"><label for="zip">ZIP code</label><input id="zip" name="zip" autocomplete="postal-code" inputmode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" maxlength="10" required></div></div>
-              <div class="field"><label for="notes">Anything you’d like us to know? <span class="optional">Optional</span></label><textarea id="notes" name="notes" rows="2" maxlength="2000" placeholder="Surfaces to update, questions, or preferred days and times for a consultation…"></textarea></div>
-              <label class="consent"><input id="contact-consent" name="contactConsent" type="checkbox" required><span>I’d like Spray-Net South Charlotte to contact me about this project using the details above. If I add photos, I authorize their use to create my requested visualizations.</span></label>
-              <input class="honeypot" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-              <p class="privacy-note">Your contact details and photos are used for your project and follow-up. <button type="button" class="text-button" id="privacy-button">How we use your information</button></p>
-              <p class="submission-note">Either option unlocks your private color studio. You can add photos and explore after the show.</p><div class="submit-choices"><button class="button" id="submit-and-schedule" type="submit" data-intent="schedule_now">Submit & request a consultation <span aria-hidden="true">→</span></button><button class="button secondary" id="submit-lead" type="submit" data-intent="contact_me">Submit my project</button></div><div class="form-actions compact"><button type="button" class="back-button" id="back-project">← Back</button><p>Our team confirms consultation availability.</p></div>
-            </section>
+        <section id="booking-panel" class="booking-panel" aria-labelledby="booking-title" hidden>
+          <div class="section-top"><h3 id="booking-title" tabindex="-1">Find a time that works.</h3><button id="refresh-slots" class="text-button" type="button">Refresh</button></div>
+          <p id="booking-length" class="muted">90-minute consultation · 30-minute travel buffer</p><p class="muted booking-hours">Every day, 8 a.m.–7 p.m. Eastern. Appointments begin October 26.</p>
+          <p id="booking-status" class="booking-status" role="status"></p>
+          <div id="slot-picker" hidden><p class="field-label">Choose a day <span>Eastern Time</span></p><div id="slot-days" class="slot-days" role="group" aria-label="Consultation dates"></div><div id="slot-times" class="slot-times" role="group" aria-label="Consultation times"></div></div>
+          <form id="booking-form" hidden novalidate>
+            <div class="field"><label for="booking-address">Project address <span class="required-note">For your consultation</span></label><input id="booking-address" name="address" autocomplete="street-address" maxlength="180" placeholder="Street, city, and ZIP" required></div>
+            <div class="field"><label for="booking-email">Email for your consultation <span>Optional</span></label><input id="booking-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="you@example.com"></div>
+            <p id="selected-time" class="selected-time"></p><button id="confirm-booking" class="button full" type="submit" disabled>Confirm consultation <span aria-hidden="true">✓</span></button><p class="booking-note">We’ll confirm the appointment in our consultation calendar.</p>
           </form>
-          <section class="form-step confirmation-step" data-step="2" aria-labelledby="confirmation-title" hidden>
-            <div class="saved-check" aria-hidden="true">✓</div>
-            <div class="step-heading"><p class="eyebrow">PROJECT RECEIVED</p><h3 id="confirmation-title" tabindex="-1">Thanks. You’re on our list.</h3><p id="confirmation-message">Your project details are saved with our South Charlotte team.</p></div>
-            <div class="consultation-card"><p class="eyebrow">YOUR NEXT STEP</p><h4>Let’s plan your consultation.</h4><p id="consultation-message">Want to talk through your project? Ask our team to arrange a consultation.</p><a id="booking-link" class="button full" hidden target="_blank" rel="noopener noreferrer">Choose my consultation time <span aria-hidden="true">↗</span></a><button id="request-consultation" class="button full" type="button">Request a consultation <span aria-hidden="true">→</span></button><p id="consultation-status" role="status"></p><p class="appointment-note">Your appointment is confirmed only when our team or booking calendar confirms the date and time.</p></div>
-            <div class="later-card"><span class="gift" aria-hidden="true">✦</span><div><h4>Your color studio is unlocked.</h4><p>There’s no need to do this at the booth. Save your private link and try your <span data-render-count>3</span> free visualizations later on your phone.</p></div></div>
-            <button id="copy-studio-link" class="button secondary full" type="button">Copy my private studio link <span aria-hidden="true">↗</span></button><p id="access-status" role="status" class="access-status"></p><input id="studio-access-link" type="text" readonly aria-label="Your private studio link" hidden><p class="private-link-note">Keep this link private. Anyone with it can access your project photos and visualizations.</p>
-            <button id="open-studio" class="text-button open-studio" type="button">Have time now? Open my color studio →</button>
-            <button id="reset-session" class="text-button reset-session" type="button">Finish & clear this device for the next visitor</button>
-          </section>
-          <section class="form-step" data-step="3" aria-labelledby="studio-title" hidden>
-            <div class="step-heading"><p class="eyebrow">YOUR PROJECT PERK · UNLOCKED</p><h3 id="studio-title" tabindex="-1">Welcome to your color studio.</h3><p id="studio-message">Your project is already saved. Explore colors whenever you have a little time.</p></div>
-            <div class="credit-bar"><span><span aria-hidden="true">✦</span> Your home show gift</span><strong><span id="remaining-renders">3</span> renders remaining</strong></div>
-                          <div class="field-label-row"><label for="photos">Add a photo when you’re ready</label><span>For your visualizations</span></div>
-              <label class="upload-zone" id="upload-zone" for="photos"><input type="file" id="photos" accept="image/jpeg,image/png,image/webp" multiple><span class="upload-icon" aria-hidden="true">↥</span><strong>Tap to add your photos</strong><span>or drop them here</span><small>JPG, PNG or WebP · up to 3 photos · 10 MB each</small></label>
-<div id="studio-photo-list" class="studio-photo-list"></div>
-            <fieldset class="color-fieldset"><legend>Pick a color direction</legend><div class="color-options" id="color-options"></div></fieldset>
-            <div class="field"><label for="surface">What should change?</label><select id="surface"><option>Cabinets</option><option>Exterior siding</option><option>Brick</option><option>Stucco</option><option>Front door</option><option>Garage door</option><option>Window frames</option></select></div>
-            <p class="render-note">AI previews are inspiration, not a finish or color guarantee. Confirm your final color with physical samples.</p>
-            <button class="button full" id="render-button" type="button">Create my visualization <span aria-hidden="true">✦</span></button>
-            <p id="render-status" role="status" class="render-status"></p><button id="retry-image" class="button secondary full" type="button" hidden>Retrieve my completed image</button><div id="render-results" class="render-results" aria-live="polite"></div>
-            <button id="back-next-steps" class="text-button reset-session" type="button">← Back to consultation & saved access</button>
-          </section>
-        </div>
-      </div>
-    </section>
-    <section class="inspiration" id="inspiration"><div class="wrap inspiration-inner"><div><p class="eyebrow">KEEP THE IDEAS COMING</p><h2>A little color.<br>A lot of possibility.</h2><p>See more cabinet and exterior transformations<br>from the Spray-Net portfolio.</p><a class="button secondary" href="https://benjamin41997-ctrl.github.io/spray-net-portfolio/" target="_blank" rel="noopener">Find your inspiration <span aria-hidden="true">↗</span></a></div><img src="./assets/kitchen-after.webp" alt="A finished kitchen with deep navy cabinets and white countertops" loading="lazy" width="1200" height="800"></div></section>
-    <section class="faq wrap" aria-label="Common questions"><h2>A few things to know.</h2><details><summary>Do I need a photo at the home show?</summary><p>No. Submit your project details and request your consultation first. Your private studio unlocks after submission, so you can add photos and explore colors later.</p></details><details><summary>Are the visualizations really free?</summary><p>When the studio is connected, submitting your project unlocks three successful visualizations at no charge to you. You can submit a lead on its own or also request a consultation. No purchase is required. Our team covers the rendering cost.</p></details><details><summary>Does submitting book an appointment?</summary><p>Submitting saves your project details. A consultation request asks our team to arrange a time. If an online booking calendar is available, you can choose a time after submitting. An appointment is confirmed only through our team or that calendar.</p></details><details><summary>Will my home look exactly like the image?</summary><p>A visualization helps you explore an idea. Lighting, screens, surface texture, and AI edits affect the image. Your local team will help you choose using physical samples.</p></details></section>
+        </section>
+        <section id="confirmed-panel" class="confirmed-panel" aria-labelledby="confirmed-title" hidden><p class="eyebrow">YOU’RE BOOKED</p><h2 id="confirmed-title" tabindex="-1">Your consultation is confirmed.</h2><p id="confirmed-time"></p><p id="confirmed-address" class="muted"></p><a id="download-appointment" class="calendar-download" download="spray-net-consultation.ics" hidden>Add to my calendar ↓</a><div class="unlocked-note"><span aria-hidden="true">✦</span><p>Your visualizer is unlocked.<br><small>Try <span data-free-renders>3</span> color ideas for free.</small></p></div><button class="button full" id="open-studio" type="button">Open my visualizer <span aria-hidden="true">↗</span></button></section>
+        <div class="private-access"><div class="section-top"><h3>Keep your project handy.</h3></div><p class="mobile-only">Copy your private project link to come back later.</p><div id="private-qr-card" class="private-qr-card tablet-only"><div id="private-project-qr" class="qr private-qr"></div><div><strong>Continue on your phone.</strong><p>Scan your private QR to book your consultation and return to your visualizer later.</p></div></div><button class="button secondary full" id="copy-project-link" type="button">Copy my private project link</button><p id="access-status" class="access-status" role="status"></p><input id="private-link" type="text" readonly aria-label="Private project link" hidden><p class="private-warning">Keep this link private. It gives access to your project.</p></div>
+        <button id="next-visitor" class="reset-button full tablet-only" type="button">Done · ready for the next visitor <span aria-hidden="true">↻</span></button>
+      </section>
+      <section id="studio" class="studio" aria-labelledby="studio-title" hidden>
+        <div class="section-top"><div><p class="eyebrow">YOUR PRIVATE COLOR STUDIO</p><h2 id="studio-title" tabindex="-1">Picture the possibilities.</h2></div><button id="close-studio" class="text-button" type="button">Back</button></div><div class="credit-bar"><span aria-hidden="true">✦</span><strong><span id="remaining-renders">3</span> renders remaining</strong></div><p id="studio-status" class="studio-status" role="status"></p>
+        <label id="upload-zone" class="upload-zone" for="photos"><input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple><span aria-hidden="true">↥</span><strong>Add a photo of your space</strong><small>JPG, PNG or WebP · up to 3 photos · 10 MB each</small></label><div id="studio-photos" class="studio-photos" role="group" aria-label="Your project photos"></div>
+        <fieldset class="colors-fieldset"><legend>Choose a color direction</legend><div id="color-options" class="color-options"></div></fieldset><div class="field"><label for="surface">What should change?</label><select id="surface"><option>Cabinets</option><option>Exterior siding</option><option>Brick</option><option>Stucco</option><option>Front door</option><option>Garage door</option><option>Window frames</option></select></div><p class="visualizer-note">AI previews help explore an idea. Confirm final colors with physical samples.</p><button id="create-render" class="button full" type="button">Create my visualization <span aria-hidden="true">✦</span></button><p id="render-status" class="studio-status" role="status"></p><button id="retry-image" class="button secondary full" type="button" hidden>Retrieve my completed image</button><div id="render-results" class="render-results" aria-live="polite"></div>
+      </section>
+    </article>
   </main>
-  <footer class="wrap"><div><strong>Spray-Net <span data-location>South Charlotte</span></strong><p>Custom Chemistry. Smarter Painting.</p></div><p>Portfolio photos show Spray-Net transformations.<br>Color studio outputs are AI visualizations.</p><button type="button" class="text-button" id="footer-privacy">Privacy & photo use</button></footer>
-  <dialog id="privacy-dialog"><button class="dialog-close" type="button" id="close-privacy" aria-label="Close privacy information">×</button><p class="eyebrow">YOUR PROJECT INFORMATION</p><h2>Privacy & photo use</h2><p>Spray-Net South Charlotte collects the contact and project details you submit so our team can respond to your request and arrange project follow-up.</p><p>Photos you submit are stored with your project. Photos selected for a visualization are sent to our configured image-generation provider to produce the image you request. Avoid uploading people, documents, or anything you do not want processed.</p><p>Uploading a photo does not authorize its use in public advertising. We request separate permission for that. To request access to or removal of your project information, contact your Spray-Net South Charlotte representative.</p><p id="privacy-extra"></p><button type="button" class="button" id="privacy-done">Got it</button></dialog>
-  <noscript><div class="noscript">Please enable JavaScript to use the project form. You can also speak with the Spray-Net team at the booth.</div></noscript>
+  <footer><span>Spray-Net South Charlotte</span><button id="footer-privacy" class="text-button" type="button">Privacy & photo use</button></footer>
+  <div id="idle-notice" class="idle-notice" role="status" hidden>Clearing this tablet soon for the next visitor. Tap anywhere to keep going.</div>
+  <dialog id="privacy-dialog"><button id="close-privacy" class="dialog-close" type="button" aria-label="Close privacy information">×</button><p class="eyebrow">YOUR PROJECT INFORMATION</p><h2>Privacy & photo use</h2><p>Spray-Net South Charlotte uses your submitted contact and project details to respond to your request and arrange your consultation.</p><p>Booking details are stored privately to reserve and confirm your consultation. Download your confirmed appointment to add it to your calendar. Our internal scheduler does not automatically sync with Outlook.</p><p>After a confirmed booking, photos you choose to upload are stored privately with your project. Photos selected for a visualization are sent to our configured image provider to produce your requested preview. Avoid uploading people or documents.</p><p>We request separate permission before using a project photo in public advertising. Keep your private project link to yourself. For access or removal requests, contact your local Spray-Net representative.</p><button id="privacy-done" class="button" type="button">Got it</button></dialog>
+  <noscript><div class="noscript">Please enable JavaScript or ask our booth team to help capture your details.</div></noscript>
 </body>
 </html>

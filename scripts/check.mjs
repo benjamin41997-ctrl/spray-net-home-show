@@ -16,14 +16,16 @@ let references = 0;
 async function localReference(reference, file) {
   const value = reference.trim();
   if (!value || value.startsWith('#') || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return;
-  const clean = value.split(/[?#]/)[0];
   let target;
-  try { target = resolve(value.startsWith('/') ? publicRoot : dirname(file), '.' + (value.startsWith('/') ? clean : '/' + clean)); }
+  try {
+    const clean = decodeURIComponent(value.split(/[?#]/)[0]);
+    target = resolve(clean.startsWith('/') ? publicRoot : dirname(file), '.' + (clean.startsWith('/') ? clean : '/' + clean));
+  }
   catch { failures.push(`${relative(root, file)}: invalid reference ${value}`); return; }
   if (target !== publicRoot && !target.startsWith(publicRoot + sep)) {
     failures.push(`${relative(root, file)}: asset leaves public/: ${value}`); return;
   }
-  try { await stat(decodeURIComponent(target)); references++; }
+  try { await stat(target); references++; }
   catch { failures.push(`${relative(root, file)}: missing local asset ${value}`); }
 }
 for (const file of files) {
@@ -38,7 +40,7 @@ for (const file of files) {
     failures.push(`${relative(root, file)}: possible committed private key or API credential`);
   }
   if (!file.startsWith(publicRoot + sep)) continue;
-  if (/\b(?:OPENAI_API_KEY|RENDER_API_KEY|ADMIN_TOKEN|RATE_LIMIT_SALT)\s*[:=]\s*['"][^'"]+['"]/.test(contents)) {
+  if (/\b(?:OPENAI_API_KEY|RENDER_API_KEY|ADMIN_TOKEN|RATE_LIMIT_SALT|MICROSOFT_CLIENT_SECRET|MICROSOFT_REFRESH_TOKEN|MICROSOFT_ACCESS_TOKEN|OUTLOOK_ACCESS_TOKEN)\s*[:=]\s*['"][^'"]+['"]/.test(contents)) {
     failures.push(`${relative(root, file)}: private server configuration in public files`);
   }
   if (extension === '.html') {

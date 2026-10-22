@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#003965">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Staff calendar | Spray-Net South Charlotte</title>
+  <link rel="icon" href="./assets/favicon.png">
+  <link rel="stylesheet" href="./admin.css">
+  <script src="./config.js" defer></script>
+  <script src="./admin.js" type="module"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to staff calendar</a>
+  <header class="staff-header">
+    <a href="./?mode=tablet" class="brand" aria-label="Spray-Net South Charlotte lead capture"><img src="./assets/logo.png" width="204" height="61" alt="Spray-Net — Custom Chemistry. Smarter Painting."><span>South Charlotte</span></a>
+    <div class="header-right"><span class="staff-tag">STAFF CALENDAR</span><button id="sign-out" class="button secondary small" type="button" hidden>Sign out</button></div>
+  </header>
+  <main id="main" class="staff-main">
+    <p class="eyebrow">KEEP THE DAY RUNNING SMOOTHLY</p><h1>Consultations & availability.</h1>
+    <p class="intro">Manage upcoming visits and the times your team is unavailable. All times are Eastern.</p>
+    <p id="admin-message" class="message" role="alert" hidden></p>
+    <section id="sign-in-panel" class="sign-in-card" aria-labelledby="sign-in-title">
+      <h2 id="sign-in-title">Staff access</h2><p>Enter your staff access key to view the private calendar.</p>
+      <form id="sign-in-form" autocomplete="off" novalidate>
+        <label for="staff-key">Staff access key</label><input id="staff-key" name="staffKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="32" maxlength="256" required aria-describedby="key-note">
+        <p id="key-note" class="muted small-text">Your key stays in this tab’s memory. It clears when you sign out or close the page. You’ll be signed out after 10 minutes without activity.</p>
+        <button id="sign-in" class="button full" type="submit">Open staff calendar <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+    <div id="calendar-workspace" hidden>
+      <div class="calendar-notice"><strong>Keep unavailable time up to date.</strong><p>This calendar does not read Outlook. Add your existing appointments, days off, and other unavailable time below before offering consultations.</p><p>You can download a confirmed visit for Outlook with 30 minutes added for travel. Import it manually; changes and cancellations here do not update Outlook.</p></div>
+      <div class="workspace-bar"><p id="calendar-status" role="status">Loading your calendar…</p><div class="workspace-actions"><button id="download-leads" class="button secondary small" type="button" data-action-button>Download leads CSV <span aria-hidden="true">↓</span></button><button id="refresh-calendar" class="button secondary small" type="button" data-action-button>Refresh calendar <span aria-hidden="true">↻</span></button></div></div>
+      <div class="workspace-layout">
+        <section class="appointments-panel" aria-labelledby="appointments-title"><div class="section-title"><h2 id="appointments-title">Upcoming consultations</h2><span id="appointment-count" class="count"></span></div><p id="appointments-empty" class="empty" hidden>No upcoming consultations.</p><div id="appointments-list" class="appointments-list"></div></section>
+        <aside class="availability-panel">
+          <section class="block-card" aria-labelledby="block-title"><p class="eyebrow">PROTECT YOUR TIME</p><h2 id="block-title">Add unavailable time</h2><p class="muted">Block a single appointment or a longer period. This keeps it out of the times visitors can choose.</p>
+            <form id="block-form" novalidate>
+              <div class="field"><label for="block-start">Start <span>Eastern Time</span></label><input id="block-start" name="start" type="datetime-local" step="900" required></div>
+              <div class="field"><label for="block-end">End <span>Eastern Time</span></label><input id="block-end" name="end" type="datetime-local" step="900" required></div>
+              <div class="field"><label for="block-note">Note <span>Optional · staff only</span></label><input id="block-note" name="note" type="text" maxlength="500" placeholder="For example, existing appointment or day off"></div>
+              <p class="muted small-text">Blocks may include time already started today and must end within 180 days. Each block can last up to 30 days.</p><button id="save-block" class="button full" type="submit" data-action-button>Add unavailable time <span aria-hidden="true">+</span></button>
+            </form>
+          </section>
+          <section class="blocks-panel" aria-labelledby="blocks-title"><div class="section-title"><h2 id="blocks-title">Unavailable blocks</h2><span id="block-count" class="count"></span></div><p id="blocks-empty" class="empty" hidden>No upcoming blocks. Add any time you need to keep free.</p><div id="blocks-list" class="blocks-list"></div></section>
+        </aside>
+      </div>
+    </div>
+  </main>
+  <footer class="staff-footer"><span>Spray-Net South Charlotte · Private staff access</span><a href="./?mode=tablet">Back to lead capture ↗</a></footer>
+  <noscript><p class="noscript">JavaScript is required for the private staff calendar.</p></noscript>
+</body>
+</html>

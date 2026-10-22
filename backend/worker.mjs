@@ -2,6 +2,8 @@
  * Runtime: Cloudflare Worker Web APIs + D1 + private R2. No runtime packages.
  * Images edits reference: https://developers.openai.com/api/reference/resources/images/methods/edit
  */
+import * as outlookBooking from './booking.mjs';
+import * as internalBooking from './internal-booking.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -10,6 +12,11 @@ export class ApiError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
 const fail = (status, code, message) => { throw new ApiError(status, code, message); };
+function bookingAdapter(env) {
+  if (env.BOOKING_PROVIDER === 'internal') return internalBooking;
+  if (env.BOOKING_PROVIDER == null || env.BOOKING_PROVIDER === '' || env.BOOKING_PROVIDER === 'outlook') return outlookBooking;
+  fail(503, 'BOOKING_UNAVAILABLE', 'Online scheduling is unavailable. Your details are saved; please contact the team.');
+}
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
 });
@@ -60,23 +67,34 @@ function text(value, name, max, required = true) {
 export function validateLead(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'INVALID_BODY', 'Please check the form.');
   if (body.contactConsent !== true) fail(400, 'CONSENT_REQUIRED', 'Please agree to be contacted about your project.');
+  let firstName = text(body.firstName, 'first name', 80, false);
+  let lastName = text(body.lastName, 'last name', 80, false);
+  const fullName = text(body.fullName ?? body.name, 'name', 161, false);
+  if (!firstName && fullName) { const parts = fullName.split(/\s+/); firstName = parts.shift(); lastName ||= parts.join(' '); }
+  if (!firstName) fail(400, 'NAME_REQUIRED', 'Enter your name.');
+  firstName = text(firstName, 'name', 80); lastName = text(lastName, 'name', 80, false);
   const lead = {
-    firstName: text(body.firstName, 'first name', 80), lastName: text(body.lastName, 'last name', 80),
-    email: text(body.email, 'email', 254), phone: text(body.phone, 'phone number', 30),
-    address: text(body.address, 'street address', 180), city: text(body.city, 'city', 100),
-    state: text(body.state, 'state', 2).toUpperCase(), zip: text(body.zip, 'ZIP code', 10),
-    service: text(body.service, 'service interest', 100), timeline: text(body.timeline, 'timeline', 100, false),
+    firstName, lastName,
+    email: text(body.email, 'email', 254, false), phone: text(body.phone, 'phone number', 30),
+    address: text(body.address, 'street address', 180, false), city: text(body.city, 'city', 100, false),
+    state: text(body.state, 'state', 2, false).toUpperCase(), zip: text(body.zip, 'ZIP code', 10, false),
+    service: text(body.service, 'service interest', 100, false), timeline: text(body.timeline, 'timeline', 100, false),
     consultationPreference: body.consultationPreference === undefined ? 'contact_me' : body.consultationPreference,
+    captureMode: body.captureMode === 'tablet' ? 'tablet' : 'mobile',
     notes: text(body.notes, 'project notes', 2000, false), event: text(body.event, 'event', 160, false),
   };
   if (!['contact_me', 'schedule_now'].includes(lead.consultationPreference))
     fail(400, 'INVALID_CONSULTATION_PREFERENCE', 'Choose whether to schedule a consultation or ask our team to contact you.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address.');
+  if (lead.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address.');
   if (!/^[+()\d\s.\-]+$/.test(lead.phone) || !/^\d{7,15}$/.test(lead.phone.replace(/\D/g, '')))
     fail(400, 'INVALID_PHONE', 'Enter a valid phone number.');
-  if (!/^[A-Z]{2}$/.test(lead.state) || !/^\d{5}(?:-\d{4})?$/.test(lead.zip))
+  if ((lead.state && !/^[A-Z]{2}$/.test(lead.state)) || (lead.zip && !/^\d{5}(?:-\d{4})?$/.test(lead.zip)))
     fail(400, 'INVALID_ADDRESS', 'Enter a two-letter state and a valid ZIP code.');
   return lead;
+}
+export function normalizePhone(value) {
+  const digits = String(value).replace(/\D/g, '');
+  return digits.length === 10 ? `1${digits}` : digits;
 }
 export function detectImage(bytes) {
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
@@ -121,6 +139,28 @@ async function leadFor(request, env, id) {
   if (!lead) fail(401, 'UNAUTHORIZED', 'Your session is unavailable. Please ask the booth team for help.');
   return lead;
 }
+function publicLead(lead) {
+  return { name: `${lead.first_name} ${lead.last_name}`.trim(), firstName: lead.first_name, lastName: lead.last_name,
+    phone: lead.phone, email: lead.email, address: lead.address, city: lead.city, state: lead.state,
+    zip: lead.zip, service: lead.service };
+}
+function publicBooking(booking) {
+  if (!booking) return { status: 'none' };
+  return { status: booking.status, start: booking.start ?? booking.start_at,
+    end: booking.end ?? booking.end_at, timeZone: booking.timeZone ?? booking.time_zone };
+}
+async function bookingFor(env, lead) {
+  const booking = await env.DB.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').bind(lead.id).first();
+  if (!booking || !['pending', 'confirmed'].includes(booking.status)) return { booking: publicBooking(booking), visualizerUnlocked: false };
+  const verified = await bookingAdapter(env).verifyConsultation(env, booking);
+  return { booking: publicBooking(verified), visualizerUnlocked: verified.status === 'confirmed' };
+}
+async function requireBooking(env, lead) {
+  const state = await bookingFor(env, lead);
+  if (!state.visualizerUnlocked)
+    fail(403, 'BOOKING_REQUIRED', 'Schedule and confirm your consultation to unlock photo uploads and the visualizer.');
+  return state;
+}
 async function throttle(request, env, config) {
   // CF-Connecting-IP is set by Cloudflare, not a trusted client-supplied proxy header.
   const ip = request.headers.get('CF-Connecting-IP') || 'local-development';
@@ -141,30 +181,37 @@ async function createLead(request, env, config) {
   await throttle(request, env, config);
   const id = crypto.randomUUID(), accessToken = clientToken || token(), now = new Date().toISOString();
   const tokenHash = await hash(accessToken), inputHash = await hash(JSON.stringify([config.eventId, lead]));
+  const normalizedPhone = normalizePhone(lead.phone), identity = `phone:${normalizedPhone}`;
+  async function existingLead() {
+    return env.DB.prepare(`SELECT id,token_hash,request_key,input_hash,remaining_renders,consultation_preference FROM leads
+      WHERE phone_normalized=? AND event_id=? ORDER BY CASE WHEN lead_identity=? THEN 0 ELSE 1 END,created_at,id LIMIT 1`)
+      .bind(normalizedPhone, config.eventId, identity).first();
+  }
+  function duplicateResponse(existing) {
+    if (clientToken && requestKey && existing && existing.token_hash === tokenHash
+      && existing.request_key === requestKey && existing.input_hash === inputHash)
+      return json({ id: existing.id, token: accessToken, remainingRenders: existing.remaining_renders,
+        consultationPreference: existing.consultation_preference, booking: { status: 'none' }, visualizerUnlocked: false }, 200);
+    fail(409, 'ALREADY_REGISTERED', 'This phone number is already registered for this event. Use your saved project link or ask the booth team for help.');
+  }
+  const existing = await existingLead();
+  if (existing) return duplicateResponse(existing);
   try {
     await env.DB.prepare(`INSERT INTO leads
-      (id,token_hash,request_key,input_hash,email_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,consultation_preference,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(id, tokenHash, requestKey || null, inputHash, lead.email.toLowerCase(), config.eventId,
+      (id,token_hash,request_key,input_hash,lead_identity,phone_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,capture_mode,consultation_preference,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, tokenHash, requestKey || null, inputHash, identity, normalizedPhone, config.eventId,
         lead.firstName, lead.lastName, lead.email, lead.phone, lead.address, lead.city, lead.state, lead.zip,
-        lead.service, lead.consultationPreference, lead.timeline, lead.notes, lead.event || config.eventId, now,
+        lead.service, lead.captureMode, lead.consultationPreference, lead.timeline, lead.notes, lead.event || config.eventId, now,
         String(env.CONSENT_VERSION || '2026-10-21-v1'), config.freeRenders, now).run();
   } catch (error) {
     if (/UNIQUE constraint/i.test(String(error))) {
-      if (clientToken && requestKey) {
-        const existing = await env.DB.prepare(`SELECT id,token_hash,request_key,input_hash,remaining_renders,consultation_preference FROM leads
-          WHERE email_normalized=? AND event_id=?`).bind(lead.email.toLowerCase(), config.eventId).first();
-        if (existing && existing.token_hash === tokenHash && existing.request_key === requestKey && existing.input_hash === inputHash)
-          return json({ id: existing.id, token: accessToken, remainingRenders: existing.remaining_renders,
-            consultationPreference: existing.consultation_preference }, 200);
-      }
-      fail(409, 'ALREADY_REGISTERED',
-        'This email is already registered for this event. Use the original browser session or ask the booth team for help.');
+      return duplicateResponse(await existingLead());
     }
     throw error;
   }
   return json({ id, token: accessToken, remainingRenders: config.freeRenders,
-    consultationPreference: lead.consultationPreference }, 201);
+    consultationPreference: lead.consultationPreference, booking: { status: 'none' }, visualizerUnlocked: false }, 201);
 }
 async function uploadPhoto(request, env, lead) {
   const contentType = request.headers.get('Content-Type') || '';
@@ -326,17 +373,20 @@ async function media(env, leadId, id, kind) {
   if (!object) fail(404, 'NOT_FOUND', 'This image is unavailable.');
   return new Response(object.body, { headers: { 'Content-Type': row.mime_type, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store' } });
 }
-async function exportCsv(request, env) {
-  if (!secretReady(env.ADMIN_TOKEN, 32)) fail(503, 'ADMIN_UNAVAILABLE', 'Lead export is not configured.');
+async function requireAdmin(request, env) {
+  if (!secretReady(env.ADMIN_TOKEN, 32)) fail(503, 'ADMIN_UNAVAILABLE', 'Administrator access is not configured.');
   if (await hash(bearer(request)) !== await hash(env.ADMIN_TOKEN)) fail(401, 'UNAUTHORIZED', 'A valid administrator token is required.');
+}
+async function exportCsv(request, env) {
+  await requireAdmin(request, env);
   const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM leads').first();
   if (count.count > 10000) fail(413, 'EXPORT_TOO_LARGE', 'Export exceeds 10,000 leads. Use an administrator database export.');
   const { results } = await env.DB.prepare(`SELECT l.id,l.first_name,l.last_name,l.email,l.phone,l.address,l.city,l.state,l.zip,
-    l.service,l.consultation_preference,l.timeline,l.notes,l.event_id,l.event_label,l.consent_at,l.consent_version,l.remaining_renders,l.created_at,
+    l.service,l.capture_mode,l.consultation_preference,l.timeline,l.notes,l.event_id,l.event_label,l.consent_at,l.consent_version,l.remaining_renders,l.created_at,
     (SELECT COUNT(*) FROM photos p WHERE p.lead_id=l.id AND p.status='ready') AS photo_count,
     (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='completed') AS render_count
     FROM leads l ORDER BY l.created_at DESC LIMIT 10000`).all();
-  const columns = ['id','first_name','last_name','email','phone','address','city','state','zip','service','consultation_preference','timeline','notes',
+  const columns = ['id','first_name','last_name','email','phone','address','city','state','zip','service','capture_mode','consultation_preference','timeline','notes',
     'event_id','event_label','consent_at','consent_version','remaining_renders','created_at','photo_count','render_count'];
   const csv = '\uFEFF' + [columns.map(csvCell).join(','), ...results.map(row => columns.map(c => csvCell(row[c])).join(','))].join('\r\n');
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="home-show-leads.csv"' } });
@@ -345,12 +395,63 @@ async function route(request, env, config) {
   const { pathname } = new URL(request.url), method = request.method;
   if (pathname === '/api/health' && method === 'GET') {
     let ready = config.ready;
-    if (ready) { try { await env.DB.prepare('SELECT id FROM leads LIMIT 1').first(); } catch { ready = false; } }
-    return json({ ready, renderAvailable: ready && config.renderAvailable, freeRenders: config.freeRenders });
+    if (ready) {
+      try {
+        await env.DB.prepare('SELECT id,phone_normalized,capture_mode FROM leads LIMIT 1').first();
+        await env.DB.prepare('SELECT lead_id FROM consultation_bookings LIMIT 1').first();
+        if (env.BOOKING_PROVIDER === 'internal') await env.DB.prepare('SELECT id FROM booking_time_blocks LIMIT 1').first();
+      } catch { ready = false; }
+    }
+    const booking = bookingAdapter(env).bookingConfiguration(env);
+    return json({ ready, renderAvailable: ready && config.renderAvailable, freeRenders: config.freeRenders,
+      bookingAvailable: ready && booking.available, consultationMinutes: booking.durationMinutes,
+      travelBufferMinutes: booking.bufferMinutes, timeZone: booking.timeZone });
   }
   if (!config.ready) fail(503, 'NOT_CONFIGURED', 'Live submissions are not enabled yet. Please contact the booth team.');
   if (pathname === '/api/admin/leads.csv' && method === 'GET') return exportCsv(request, env);
+  const adminBlock = pathname.match(/^\/api\/admin\/blocks\/([^/]+)$/);
+  const adminCancel = pathname.match(/^\/api\/admin\/bookings\/([^/]+)\/cancel$/);
+  if (pathname === '/api/admin/bookings' || pathname === '/api/admin/blocks' || adminBlock || adminCancel) {
+    await requireAdmin(request, env);
+    if (env.BOOKING_PROVIDER !== 'internal')
+      fail(409, 'INTERNAL_SCHEDULER_REQUIRED', 'This action is available only for the internal consultation calendar.');
+    if (pathname === '/api/admin/bookings' && method === 'GET') return json(await internalBooking.listAdminSchedule(env));
+    if (pathname === '/api/admin/blocks' && method === 'POST')
+      return json(await internalBooking.createTimeBlock(env, await readJson(request)), 201);
+    if (adminBlock && method === 'DELETE') {
+      if (!UUID.test(adminBlock[1])) fail(400, 'INVALID_BLOCK', 'Choose a valid time block.');
+      return json(await internalBooking.deleteTimeBlock(env, adminBlock[1]));
+    }
+    if (adminCancel && method === 'POST') {
+      if (!UUID.test(adminCancel[1])) fail(400, 'INVALID_BOOKING', 'Choose a valid consultation.');
+      return json(await internalBooking.cancelConsultation(env, adminCancel[1]));
+    }
+    fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
+  }
   if (pathname === '/api/leads' && method === 'POST') return createLead(request, env, config);
+  const bookingRoute = pathname.match(/^\/api\/leads\/([^/]+)\/consultation\/(slots|book)$/);
+  if (bookingRoute && UUID.test(bookingRoute[1])) {
+    const lead = await leadFor(request, env, bookingRoute[1]);
+    if (bookingRoute[2] === 'slots' && method === 'GET') return json(await bookingAdapter(env).listConsultationSlots(env));
+    if (bookingRoute[2] === 'book' && method === 'POST') {
+      const body = await readJson(request);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'INVALID_BODY', 'Choose a consultation time.');
+      const address = body.address === undefined ? lead.address : body.address;
+      if (typeof address !== 'string' || !address.trim() || address.trim().length > 180
+        || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(address))
+        fail(400, 'INVALID_ADDRESS', 'Enter the project street address before scheduling your consultation.');
+      const email = body.email === undefined ? lead.email : text(body.email, 'email', 254, false);
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address or leave it blank.');
+      const updatedLead = { ...lead, address: address.trim(), email, consultation_preference: 'schedule_now' };
+      await bookingAdapter(env).bookConsultation(env, { lead: updatedLead, start: body.start,
+        requestKey: request.headers.get('Idempotency-Key') || body.requestKey, email });
+      if (env.BOOKING_PROVIDER !== 'internal')
+        await env.DB.prepare("UPDATE leads SET address=?,email=?,consultation_preference='schedule_now' WHERE id=?")
+          .bind(address.trim(), email, lead.id).run();
+      return json(await bookingFor(env, lead));
+    }
+    fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
+  }
   const consultation = pathname.match(/^\/api\/leads\/([^/]+)\/consultation$/);
   if (consultation && UUID.test(consultation[1]) && method === 'POST') {
     const lead = await leadFor(request, env, consultation[1]);
@@ -363,11 +464,13 @@ async function route(request, env, config) {
   const session = pathname.match(/^\/api\/leads\/([^/]+)\/session$/);
   if (session && UUID.test(session[1]) && method === 'GET') {
     const lead = await leadFor(request, env, session[1]); await settleStale(env, lead.id);
+    const booking = await bookingFor(env, lead);
     const current = await env.DB.prepare('SELECT remaining_renders FROM leads WHERE id=?').bind(lead.id).first();
-    const { results: photos } = await env.DB.prepare("SELECT id FROM photos WHERE lead_id=? AND status='ready' ORDER BY created_at").bind(lead.id).all();
-    const { results: renders } = await env.DB.prepare(`SELECT id,status,color_name,color_hex,surface,error_code FROM renders
-      WHERE lead_id=? ORDER BY created_at`).bind(lead.id).all();
+    const photos = booking.visualizerUnlocked ? (await env.DB.prepare("SELECT id FROM photos WHERE lead_id=? AND status='ready' ORDER BY created_at").bind(lead.id).all()).results : [];
+    const renders = booking.visualizerUnlocked ? (await env.DB.prepare(`SELECT id,status,color_name,color_hex,surface,error_code FROM renders
+      WHERE lead_id=? ORDER BY created_at`).bind(lead.id).all()).results : [];
     return json({ id: lead.id, remainingRenders: current.remaining_renders, consultationPreference: lead.consultation_preference,
+      lead: publicLead(lead), ...booking,
       photos: photos.map(photo => ({ id: photo.id, url: `/api/leads/${lead.id}/photos/${photo.id}` })),
       renders: renders.map(render => ({ id: render.id, status: render.status,
         colorName: render.color_name, colorHex: render.color_hex, surface: render.surface,
@@ -379,6 +482,7 @@ async function route(request, env, config) {
   const match = pathname.match(/^\/api\/leads\/([^/]+)\/(photos|renders)(?:\/([^/]+))?(\/image)?$/);
   if (!match || !UUID.test(match[1]) || (match[3] && !UUID.test(match[3]))) fail(404, 'NOT_FOUND', 'This endpoint does not exist.');
   const [, leadId, kind, id, suffix] = match, lead = await leadFor(request, env, leadId);
+  await requireBooking(env, lead);
   if (method === 'POST' && !id) return kind === 'photos' ? uploadPhoto(request, env, lead) : createRender(request, env, config, lead);
   if (method === 'GET' && id && kind === 'photos' && !suffix) return media(env, leadId, id, kind);
   if (method === 'GET' && id && kind === 'renders') {
@@ -400,7 +504,7 @@ export default {
     let response;
     try {
       if (request.method === 'OPTIONS') response = new Response(null, { status: 204, headers: {
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization,Content-Type,Idempotency-Key,X-Lead-Token', 'Access-Control-Max-Age': '600' } });
       else {
         // Use primary reads for lead creation followed immediately by uploads/renders.
@@ -408,7 +512,8 @@ export default {
         response = await route(request, bindings, config);
       }
     } catch (error) {
-      const safe = error instanceof ApiError ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again or contact the booth team.');
+      const safe = error instanceof ApiError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
+        ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again or contact the booth team.');
       response = json({ error: { code: safe.code, message: safe.message } }, safe.status);
     }
     const result = new Response(response.body, response);

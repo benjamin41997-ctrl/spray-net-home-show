@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS leads (
   token_hash TEXT NOT NULL,
   request_key TEXT,
   input_hash TEXT,
-  email_normalized TEXT NOT NULL,
+  lead_identity TEXT NOT NULL,
+  phone_normalized TEXT NOT NULL,
   event_id TEXT NOT NULL,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS leads (
   state TEXT NOT NULL,
   zip TEXT NOT NULL,
   service TEXT NOT NULL,
+  capture_mode TEXT NOT NULL DEFAULT 'mobile' CHECK (capture_mode IN ('mobile', 'tablet', 'unknown')),
   consultation_preference TEXT NOT NULL DEFAULT 'contact_me'
     CHECK (consultation_preference IN ('contact_me', 'schedule_now')),
   timeline TEXT NOT NULL DEFAULT '',
@@ -25,8 +27,49 @@ CREATE TABLE IF NOT EXISTS leads (
   consent_version TEXT NOT NULL,
   remaining_renders INTEGER NOT NULL CHECK (remaining_renders >= 0),
   created_at TEXT NOT NULL,
-  UNIQUE (email_normalized, event_id)
+  UNIQUE (lead_identity, event_id)
 );
+CREATE INDEX IF NOT EXISTS leads_phone_event ON leads(phone_normalized, event_id);
+
+CREATE TABLE IF NOT EXISTS consultation_bookings (
+  lead_id TEXT PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  calendar_key TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'cancelled')),
+  graph_event_id TEXT,
+  transaction_id TEXT NOT NULL,
+  start_at TEXT NOT NULL,
+  end_at TEXT NOT NULL,
+  time_zone TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  attendee_email TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS consultation_calendar_status_time
+  ON consultation_bookings(calendar_key, status, start_at, end_at);
+CREATE TABLE IF NOT EXISTS booking_calendar_locks (
+  calendar_key TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS booking_tokens (
+  calendar_key TEXT PRIMARY KEY,
+  refresh_cipher TEXT NOT NULL,
+  access_cipher TEXT,
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS booking_time_blocks (
+  id TEXT PRIMARY KEY,
+  calendar_key TEXT NOT NULL,
+  start_at TEXT NOT NULL,
+  end_at TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS booking_blocks_calendar_time
+  ON booking_time_blocks(calendar_key, start_at, end_at);
 
 CREATE TABLE IF NOT EXISTS photos (
   id TEXT PRIMARY KEY,
