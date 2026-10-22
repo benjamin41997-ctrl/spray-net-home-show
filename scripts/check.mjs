@@ -4,14 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const publicRoot = resolve(root, 'public');
+const built = process.argv.includes('--dist');
+const publicRoot = resolve(root, built ? 'dist' : 'public');
 const failures = [];
 async function filesIn(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   return (await Promise.all(entries.filter(e => !['node_modules', '.git', 'dist', '.wrangler', 'work'].includes(e.name))
     .map(e => e.isDirectory() ? filesIn(resolve(directory, e.name)) : resolve(directory, e.name)))).flat();
 }
-const files = await filesIn(root);
+const files = await filesIn(built ? publicRoot : root);
 let references = 0;
 async function localReference(reference, file) {
   const value = reference.trim();
@@ -58,4 +59,4 @@ for (const file of files) {
   }
 }
 if (failures.length) { console.error(failures.join('\n')); process.exitCode = 1; }
-else console.log(`Checked syntax, public credentials, and ${references} local asset references.`);
+else console.log(`Checked ${built ? 'built output ' : ''}syntax, public credentials, and ${references} local asset references.`);

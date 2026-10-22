@@ -4,6 +4,7 @@
  */
 const BOX = [-81.5, 34.65, -80.25, 35.8];
 const TIMEOUT_MS = 4000;
+const RESULT_GRACE_MS = 400;
 const MAX_BYTES = 128 * 1024;
 const MAX_FEATURES = 20;
 const MAX_SUGGESTIONS = 8;
@@ -30,7 +31,7 @@ const suffixes = new Set(['ST', 'RD', 'DR', 'CT', 'LN', 'AVE', 'BLVD', 'CIR', 'P
 export class AddressError extends Error {
   constructor(status, code, message) { super(message); this.name = 'AddressError'; this.status = status; this.code = code; }
 }
-const invalid = () => { throw new AddressError(400, 'ADDRESS_QUERY_INVALID', 'Enter a house number and at least two street letters to see local address suggestions.'); };
+const invalid = () => { throw new AddressError(400, 'ADDRESS_QUERY_INVALID', 'Enter at least three house-number digits, or a house number and street letters, to see local address suggestions.'); };
 const cancelled = () => { throw new AddressError(408, 'ADDRESS_LOOKUP_CANCELLED', 'Address lookup was cancelled.'); };
 const clean = (value, max = 200) => typeof value === 'string' && value.length <= max && !/[\u0000-\u001f\u007f<>]/.test(value) ? value.trim().replace(/\s+/g, ' ') : '';
 const upper = value => clean(value).toUpperCase();
@@ -42,30 +43,58 @@ const title = value => value.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (_, spa
 function parseQuery(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) invalid();
   const raw = body.query ?? body.q;
-  if (typeof raw !== 'string' || raw.length > 120 || raw.trim().length < 5 || !/^[0-9A-Za-z .,'#-]+$/.test(raw)) invalid();
-  const parts = raw.trim().replace(/\s+/g, ' ').toUpperCase().split(',');
-  if (parts.length > 2) invalid();
-  const match = /^(\d{1,6})\s*([A-Z].*)$/.exec(parts[0]);
-  if (!match || (match[2].match(/[A-Z]/g) || []).length < 2) invalid();
-  const number = match[1], street = match[2].trim();
-  if (/^0+$/.test(number) || !street) invalid();
+  if (typeof raw !== 'string' || raw.length > 120 || raw.trim().length < 3 || !/^[0-9A-Za-z .,'#-]+$/.test(raw)) invalid();
+  const parts = raw.trim().replace(/\s+/g, ' ').toUpperCase().split(',').map(part => part.trim());
+  if (parts.length > 3 || parts.some(part => !part)) invalid();
+  let streetPart = parts[0], city = parts[1] || '', state = '', zip = '';
+  if (parts.length === 3) {
+    const region = /^(NC|SC)(?:\s+(\d{5}(?:-\d{4})?))?$/.exec(parts[2]);
+    if (!region) invalid();
+    state = region[1]; zip = region[2] || '';
+  } else {
+    // A complete pasted address may end with its state/ZIP without a comma.
+    const tail = /\s+(NC|SC)(?:\s+(\d{5}(?:-\d{4})?))?$/.exec(city || streetPart);
+    if (tail) {
+      state = tail[1]; zip = tail[2] || '';
+      if (city) city = city.slice(0, tail.index).trim();
+      else streetPart = streetPart.slice(0, tail.index).trim();
+    }
+  }
+  const match = /^(\d{1,6})(?:\s*([A-Z].*))?$/.exec(streetPart);
+  if (!match) invalid();
+  const number = match[1]; let street = (match[2] || '').trim();
+  const letters = (street.match(/[A-Z]/g) || []).length;
+  if (/^0+$/.test(number) || (number.length < 3 && letters < 2)) invalid();
+  // Infer a city only after an explicit street-type token, never from a
+  // street-name word. Keep a following direction with the street.
+  if (!city && parts.length === 1 && street) {
+    const tokens = street.split(' '), canonical = tokens.map(token => comparable(token));
+    let end = -1;
+    for (let index = 1; index < canonical.length - 1; index++) if (suffixes.has(canonical[index])) end = index;
+    if (end >= 0) {
+      if (directions.has(canonical[end + 1])) end++;
+      const remainder = tokens.slice(end + 1).join(' ');
+      if (remainder && /^[A-Z .'-]+$/.test(remainder) && !/^(APT|UNIT|SUITE|STE|BUILDING|BLDG)\b/.test(remainder)) {
+        city = remainder; street = tokens.slice(0, end + 1).join(' ');
+      }
+    }
+  }
   const streetWords = words(street), nameWords = [...streetWords];
   if (directions.has(nameWords[0])) nameWords.shift();
   if (suffixes.has(nameWords.at(-1))) nameWords.pop();
   const name = nameWords.join(' ');
-  if ((name.match(/[A-Z]/g) || []).length < 2) invalid();
-  // A comma is an explicit city boundary; do not guess where a street name ends.
-  const city = (parts[1] || '').trim().replace(/\s+(NC|SC)(?:\s+\d{0,5})?$/, '').trim();
+  if (number.length < 3 && (name.match(/[A-Z]/g) || []).length < 2) invalid();
   if (city && !/^[A-Z .'-]+$/.test(city)) invalid();
-  return { number, street, name, city, comparable: streetWords.join(' ') };
+  return { number, street, name, city, state, zip, comparable: streetWords.join(' ') };
 }
 
 function queryUrl(provider, query) {
   const number = provider.numericNumber ? String(Number(query.number)) : `'${sql(query.number)}'`;
   const where = `${provider.number} = ${number} AND UPPER(${provider.state}) = '${provider.stateValue}'`
     + ` AND UPPER(${provider.county}) IN (${provider.counties.map(county => `'${county}'`).join(',')})`
-    + ` AND (UPPER(${provider.name}) LIKE '${sql(query.name)}%' OR UPPER(${provider.street}) LIKE '${sql(`${query.number} ${query.street}`)}%')`
-    + (query.city ? ` AND UPPER(${provider.city}) LIKE '${sql(query.city)}%'` : '');
+    + (query.street ? ` AND (${query.name ? `UPPER(${provider.name}) LIKE '${sql(query.name)}%' OR ` : ''}UPPER(${provider.street}) LIKE '${sql(`${query.number} ${query.street}`)}%')` : '')
+    + (query.city ? ` AND UPPER(${provider.city}) LIKE '${sql(query.city)}%'` : '')
+    + (query.zip ? ` AND ${provider.zip} ${provider.numericNumber ? `= ${Number(query.zip.slice(0, 5))}` : `LIKE '${query.zip.slice(0, 5)}%'`}` : '');
   const url = new URL(`${provider.url}/query`);
   const coordinateFields = provider.id === 'nc-addressnc' ? ['ddlong', 'ddlat'] : [];
   url.search = new URLSearchParams({ f: 'json', where, outFields: [provider.street, provider.city, provider.state, provider.zip, provider.county, ...coordinateFields].join(','),
@@ -103,6 +132,7 @@ function candidate(feature, provider, query) {
   const street = clean(attributes[provider.street]), city = clean(attributes[provider.city], 100);
   const zip = String(attributes[provider.zip] ?? '').trim();
   if (!street || !city || !/^\d{5}(?:-\d{4})?$/.test(zip)) return null;
+  if ((query.state && query.state !== state) || (query.zip && query.zip.slice(0, 5) !== zip.slice(0, 5))) return null;
   const match = /^(\d{1,6})\s+(.+)$/.exec(street);
   if (!match || match[1] !== query.number) return null;
   const streetWords = words(match[2]), normalized = streetWords.join(' ');
@@ -116,7 +146,9 @@ function candidate(feature, provider, query) {
 
 async function lookup(provider, query, request, fetcher) {
   const controller = new AbortController();
-  const stop = () => controller.abort();
+  let rejectAbort;
+  const abort = new Promise((_, reject) => { rejectAbort = reject; });
+  const stop = () => { controller.abort(); rejectAbort(new Error('Address source stopped')); };
   request?.signal?.addEventListener('abort', stop, { once: true });
   let timer;
   const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Address source timeout')); }, TIMEOUT_MS); });
@@ -129,7 +161,7 @@ async function lookup(provider, query, request, fetcher) {
       suggestions.sort((a, b) => a.display.localeCompare(b.display));
       return { provider, suggestions };
     })();
-    return await Promise.race([work, timeout]);
+    return await Promise.race([work, timeout, abort]);
   } finally { clearTimeout(timer); request?.signal?.removeEventListener('abort', stop); }
 }
 
@@ -137,9 +169,31 @@ async function lookup(provider, query, request, fetcher) {
 export async function addressSuggestions(env, body, request, fetcher = fetch) {
   const query = parseQuery(body);
   if (request?.signal?.aborted) cancelled();
-  const results = await Promise.allSettled(providers.map(provider => lookup(provider, query, request, fetcher)));
+  const selectedProviders = providers.filter(provider => !query.state || provider.stateValue === query.state);
+  const controller = new AbortController();
+  const results = new Array(selectedProviders.length);
+  // A slow county must not hold back addresses already found elsewhere. Once
+  // there is a real match, allow 400ms for other sources, then stop pending work.
+  await new Promise(resolve => {
+    let remaining = selectedProviders.length, finished = false, grace;
+    const finish = () => {
+      if (finished) return;
+      finished = true; clearTimeout(grace); request?.signal?.removeEventListener('abort', finish);
+      controller.abort(); resolve();
+    };
+    request?.signal?.addEventListener('abort', finish, { once: true });
+    selectedProviders.forEach((provider, index) => {
+      lookup(provider, query, { signal: controller.signal }, fetcher).then(value => {
+        if (finished) return;
+        results[index] = { status: 'fulfilled', value };
+        if (value.suggestions.length && !grace) grace = setTimeout(finish, RESULT_GRACE_MS);
+      }, () => {
+        if (!finished) results[index] = { status: 'rejected' };
+      }).finally(() => { if (!finished && --remaining === 0) finish(); });
+    });
+  });
   if (request?.signal?.aborted) cancelled();
-  const successful = results.filter(result => result.status === 'fulfilled').map(result => result.value);
+  const successful = results.filter(result => result?.status === 'fulfilled').map(result => result.value);
   if (!successful.length) throw new AddressError(503, 'ADDRESS_LOOKUP_UNAVAILABLE', 'Address suggestions are temporarily unavailable. You can type the complete address instead.');
   // Interleave sources so a broad NC prefix does not hide nearby SC results.
   const suggestions = [], seen = new Set();

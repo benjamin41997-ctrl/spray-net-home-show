@@ -6,11 +6,14 @@ import { attachAddressAutocomplete } from '../public/address-autocomplete.js';
 // the actual module; no browser, remote page, or external lookup is controlled.
 function fixture(lookup) {
   const document = { activeElement: null, createElement(tag) { return new Element(tag); } };
+  const view = new EventTarget(); view.innerHeight = 800; view.visualViewport = new EventTarget();
+  Object.assign(view.visualViewport, {offsetTop:0,height:800}); document.defaultView = view;
   class Element extends EventTarget {
     constructor(tag) {
       super(); this.tagName = tag.toUpperCase(); this.ownerDocument = document;
       this.parentNode = null; this.children = []; this.attributes = new Map();
       this.id = ''; this.className = ''; this.value = ''; this.hidden = false; this._text = '';
+      this.style = {}; this.classList = {toggle:(name,on) => {const names = new Set(this.className.split(' '));if(on)names.add(name);else names.delete(name);this.className = [...names].join(' ');}};
     }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
@@ -40,8 +43,9 @@ function fixture(lookup) {
     set textContent(value) { this.replaceChildren(); this._text = String(value); }
     focus() {
       const previous = document.activeElement;
-      if (previous !== this) { document.activeElement = this; previous?.dispatchEvent(new Event('blur')); }
+      if (previous !== this) { document.activeElement = this; previous?.dispatchEvent(new Event('blur'));this.dispatchEvent(new Event('focus')); }
     }
+    getBoundingClientRect() {return {top:200,bottom:248};}
     scrollIntoView() {}
     set innerHTML(_) { throw new Error('The address component must not insert HTML.'); }
   }
@@ -104,14 +108,42 @@ test('Enter selects the keyboard-highlighted real suggestion and consumes implic
   assert.equal(component.document.activeElement, component.input);
 });
 
-test('manual input after selection immediately clears structured parts and a completed native address is left alone', async t => {
+test('manual input after selection clears structured parts and a complete pasted address still receives suggestions', async t => {
   const control = controlledLookup(), component = fixture(control.lookup); cleanup(t, component, control);
   component.widget.adopt(address()); assert.deepEqual(component.widget.parts(), { city: 'Belmont', state: 'NC', zip: '28012' });
   component.type('101 Manually Edited Street, Charlotte, NC 28277');
   assert.deepEqual(component.widget.parts(), { city: '', state: '', zip: '' });
   assert.equal(component.list.children.length, 0); assert.equal(component.popup.hidden, true);
-  await settle(); assert.equal(control.calls.length, 0, 'A complete native autofill address does not trigger another lookup.');
+  const call = await control.waitFor(1);assert.equal(call.query,'101 Manually Edited Street, Charlotte, NC 28277');
   assert.equal(component.input.value, '101 Manually Edited Street, Charlotte, NC 28277');
+});
+
+test('a house number alone starts lookup, gives immediate feedback, and displays actual nearby options', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup); cleanup(t, component, control);
+  component.type('10'); assert.match(component.status.textContent,/Keep typing/);assert.equal(control.calls.length,0);
+  component.type('101');assert.match(component.status.textContent,/Looking/);
+  const call = await control.waitFor(1);assert.equal(call.query,'101');
+  call.resolve({suggestions:[address()]});await settle();
+  assert.equal(component.popup.hidden,false);assert.equal(component.input.getAttribute('aria-expanded'),'true');
+  assert.equal(component.list.children[0].children[0].textContent,'101 Main St');
+});
+
+test('returning to an address restarts an interrupted lookup and reopens completed matches without refetching', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup); cleanup(t, component, control);
+  const other = component.document.createElement('input');component.form.append(other);
+  component.type('101');const interrupted = await control.waitFor(1);other.focus();
+  assert.equal(interrupted.signal.aborted,true);assert.equal(component.popup.hidden,true);
+  component.input.focus();const resumed = await control.waitFor(2);
+  resumed.resolve({suggestions:[address()]});await settle();assert.equal(component.popup.hidden,false);
+  other.focus();component.input.focus();assert.equal(component.popup.hidden,false);
+  await settle();assert.equal(control.calls.length,2);
+});
+
+test('suggestions open above the field when the mobile keyboard leaves little room below', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup); cleanup(t, component, control);
+  component.document.defaultView.visualViewport.height = 310;
+  component.type('101');const call = await control.waitFor(1);call.resolve({suggestions:[address()]});await settle();
+  assert.match(component.popup.className,/\babove\b/);assert.equal(component.list.style.maxHeight,'162px');
 });
 
 test('a superseded lookup is aborted and its late response cannot replace newer suggestions', async t => {

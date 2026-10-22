@@ -5,9 +5,9 @@ export function addressParts(value, selection) {
   return {city:selection.city || '',state:selection.state || '',zip:selection.zip || ''};
 }
 export function eligibleAddressQuery(value) {
-  return typeof value === 'string' && value.trim().length >= 5 && value.trim().length <= 120
-    && !/\b(?:NC|SC)\s+\d{5}(?:-\d{4})?\s*$/i.test(value)
-    && /^\d{1,7}\s*[A-Za-z]/.test(value.trim()) && (value.match(/[A-Za-z]/g) || []).length >= 2;
+  if (typeof value !== 'string' || value.trim().length < 3 || value.trim().length > 120) return false;
+  const match = /^(\d{1,6})(?:\s*([A-Za-z].*))?$/.exec(value.trim());
+  return Boolean(match && !/^0+$/.test(match[1]) && (match[1].length >= 3 || ((match[2] || '').match(/[A-Za-z]/g) || []).length >= 2));
 }
 function suggestion(value) {
   if (!value || typeof value.display !== 'string' || !value.display.trim() || value.display.length > 180) return null;
@@ -15,7 +15,7 @@ function suggestion(value) {
   if (value.city?.length > 100 || (value.state && !/^[A-Z]{2}$/.test(value.state)) || (value.zip && !/^\d{5}(?:-\d{4})?$/.test(value.zip))) return null;
   return {display:value.display.trim(),street:value.street || '',city:value.city || '',state:value.state || '',zip:value.zip || ''};
 }
-export function attachAddressAutocomplete(input, {lookup, delay = 650} = {}) {
+export function attachAddressAutocomplete(input, {lookup, delay = 300} = {}) {
   if (!input || typeof lookup !== 'function') throw new TypeError('An address field and lookup function are required.');
   const doc = input.ownerDocument, wrapper = doc.createElement('div'); wrapper.className = 'address-entry';
   input.before(wrapper); wrapper.append(input);
@@ -26,16 +26,16 @@ export function attachAddressAutocomplete(input, {lookup, delay = 650} = {}) {
   const status = doc.createElement('p'); status.id = `${input.id}-lookup-status`; status.className = 'address-status'; status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); status.hidden = true; wrapper.after(status);
   const described = [input.getAttribute('aria-describedby'),status.id].filter(Boolean).join(' ');
   input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',list.id); input.setAttribute('aria-expanded','false'); input.setAttribute('aria-describedby',described);
-  let selected = null, items = [], active = -1, timer, controller, sequence = 0;
+  let selected = null, items = [], resultQuery = '', active = -1, timer, controller, sequence = 0;
   function announce(text = '') {status.textContent = text;status.hidden = !text;}
   function close() {popup.hidden = true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');active = -1;}
   function cancel() {clearTimeout(timer);controller?.abort();controller = null;sequence++;}
-  function clear() {cancel();selected = null;items = [];list.replaceChildren();close();announce();}
+  function clear() {cancel();selected = null;items = [];resultQuery = '';list.replaceChildren();close();announce();}
   function adopt(value) {clear();selected = suggestion(value);if (selected) input.value = selected.display;}
-  function highlight(index) {
+  function highlight(index, scroll = true) {
     active = index;
     for (let n = 0; n < list.children.length; n++) list.children[n].setAttribute('aria-selected',String(n === active));
-    if (active >= 0) {input.setAttribute('aria-activedescendant',list.children[active].id);list.children[active].scrollIntoView?.({block:'nearest'});}
+    if (active >= 0) {input.setAttribute('aria-activedescendant',list.children[active].id);if (scroll) list.children[active].scrollIntoView?.({block:'nearest'});}
   }
   function choose(index) {
     const item = items[index];if (!item) return;
@@ -58,7 +58,7 @@ export function attachAddressAutocomplete(input, {lookup, delay = 650} = {}) {
     });
     popup.hidden = !items.length;input.setAttribute('aria-expanded',String(Boolean(items.length)));
     position();
-    if (items.length) highlight(0);
+    if (items.length) highlight(0,false);
     announce(items.length ? `${items.length} local address suggestions. Use the arrow keys to choose, or keep typing.` : 'No matching address yet. Keep typing, or enter your address yourself.');
   }
   async function search(query, version) {
@@ -68,18 +68,31 @@ export function attachAddressAutocomplete(input, {lookup, delay = 650} = {}) {
     try {
       const result = await lookup(query,{signal:abort.signal});
       if (version !== sequence || input.value.trim() !== query || input !== doc.activeElement) return;
-      show(Array.isArray(result?.suggestions) ? result.suggestions : []);
+      resultQuery = query;show(Array.isArray(result?.suggestions) ? result.suggestions : []);
     } catch (error) {
       if (version !== sequence || input.value.trim() !== query || input !== doc.activeElement) return;
       close();announce(error?.name === 'AbortError' ? 'Address lookup took too long. You can enter your address yourself.' : 'Suggestions are unavailable right now. You can enter your address yourself.');
     } finally {clearTimeout(timeout);if (controller === abort) controller = null;}
   }
   function changed(event) {
-    selected = null;cancel();list.replaceChildren();items = [];close();announce();
-    if (event?.isComposing || !eligibleAddressQuery(input.value)) return;
+    selected = null;cancel();list.replaceChildren();items = [];resultQuery = '';close();announce();
+    if (event?.isComposing) return;
+    if (!eligibleAddressQuery(input.value)) {
+      if (input.value.trim()) announce('Keep typing your house number or add a few street letters to see suggestions.');
+      return;
+    }
+    announce('Looking for nearby addresses…');
     const query = input.value.trim(), version = sequence;timer = setTimeout(() => search(query,version),delay);
   }
   input.addEventListener('input',changed);input.addEventListener('compositionend',changed);
+  input.addEventListener('change',() => {
+    if (input === doc.activeElement && !controller && input.value.trim() !== selected?.display && input.value.trim() !== resultQuery) changed();
+  });
+  input.addEventListener('focus',() => {
+    if (input.value.trim() === selected?.display) return;
+    if (items.length && input.value.trim() === resultQuery) show(items);
+    else if (input.value.trim()) changed();
+  });
   input.addEventListener('keydown',event => {
     if (popup.hidden || !items.length) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault();highlight(event.key === 'ArrowDown' ? (active+1)%items.length : (active <= 0 ? items.length-1 : active-1));}

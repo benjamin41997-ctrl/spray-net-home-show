@@ -39,7 +39,7 @@ test('queries three fixed public layers and returns only normalized address fiel
 
 test('invalid, too broad, injection wildcard and oversized prefixes make no external request', async () => {
   let calls = 0;
-  for (const query of ['', '101', 'ma', '101 m', '101 ma%', '101 ma_', '101 ma;DROP', '101 ma\n', '<101 main>', '0 main', '1 a', '101 ' + 'm'.repeat(121)]) {
+  for (const query of ['', '10', 'ma', '12 m', '1234567', '101 ma%', '101 ma_', '101 ma;DROP', '101 ma\n', '<101 main>', '0 main', '000', '1 a', '101 main, Belmont, VA 28012', '101 main, Belmont, NC, 28012', '101 ' + 'm'.repeat(121)]) {
     await assert.rejects(addressSuggestions({}, { query }, undefined, async () => { calls++; }), error => error instanceof AddressError && error.status === 400 && error.code === 'ADDRESS_QUERY_INVALID');
   }
   assert.equal(calls, 0);
@@ -48,10 +48,36 @@ test('invalid, too broad, injection wildcard and oversized prefixes make no exte
 test('apostrophes are SQL escaped, no-space house prefix works and explicit city is a separate filter', async () => {
   const seen = [];
   await addressSuggestions({}, { query: "101o'connell, Belmont NC 28012" }, undefined, fakeFetch(undefined, url => seen.push(url.searchParams.get('where'))));
-  assert.equal(seen.length, 3);
+  assert.equal(seen.length, 1); // Explicit NC state avoids the two SC sources.
   for (const where of seen) { assert.match(where, /O''CONNELL%/); assert.match(where, /LIKE 'BELMONT%'/); }
   const result = await addressSuggestions({}, { q: '101main st' }, undefined, fakeFetch());
   assert.equal(result.suggestions[0].city, 'Belmont');
+});
+
+test('three-digit house numbers alone return only actual exact-house matches without street wildcards', async () => {
+  const data = fixtures(), seen = [];
+  data.nc.push({ attributes: { ...data.nc[0].attributes, st_address: '1010 MAIN STREET' } });
+  const result = await addressSuggestions({}, { query: '101' }, undefined, fakeFetch(data, url => seen.push(url.searchParams.get('where'))));
+  assert.equal(result.suggestions.length, 3);
+  assert.ok(result.suggestions.every(item => /^101 /.test(item.street)));
+  for (const where of seen) assert.ok(!where.includes('LIKE'));
+  assert.equal((await addressSuggestions({}, { query: '101 m' }, undefined, fakeFetch())).suggestions.length, 3);
+  let calls = 0;
+  await addressSuggestions({}, { query: '1 ma' }, undefined, fakeFetch({}, () => calls++));
+  assert.equal(calls, 3); // Short house numbers still require two street letters.
+});
+
+test('complete two-comma addresses and safe street-type/city boundaries produce the same match', async () => {
+  for (const query of ['101 Main Street, Belmont, NC 28012', '101 Main Street Belmont', '101 Main St Belmont NC 28012', '101 Main Street Bel']) {
+    const result = await addressSuggestions({}, { query }, undefined, fakeFetch());
+    assert.deepEqual(result.suggestions.map(item => item.display), ['101 Main Street, Belmont, NC 28012'], query);
+  }
+  const wrongZip = await addressSuggestions({}, { query: '101 Main Street, Belmont, NC 28099' }, undefined, fakeFetch());
+  assert.deepEqual(wrongZip.suggestions, []);
+  const data = fixtures();
+  data.nc[0].attributes.st_address = '101 ROAD RUNNER LANE';
+  const roadName = await addressSuggestions({}, { query: '101 Road Runner Lane' }, undefined, fakeFetch(data));
+  assert.equal(roadName.suggestions[0].street, '101 Road Runner Lane');
 });
 
 test('matches actual exact house numbers with common suffix/direction abbreviations', async () => {
@@ -119,6 +145,36 @@ test('aborted requests perform no lookup and an in-flight abort is not reported 
   const pending = addressSuggestions({}, { query: '101 ma' }, new Request('https://example.test', { signal: active.signal }), async (_, init) => new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('AbortError')), { once: true })));
   active.abort();
   await assert.rejects(pending, error => error.code === 'ADDRESS_LOOKUP_CANCELLED');
+});
+
+test('first real suggestions get 400ms grace for other sources, preserve source order and abort pending work', async () => {
+  const data = fixtures(), aborted = [], before = Date.now();
+  const result = await addressSuggestions({}, { query: '101 ma' }, undefined, async (value, init) => {
+    const id = source(new URL(value));
+    if (id === 'nc') return new Promise(() => init.signal.addEventListener('abort', () => aborted.push(id), { once: true }));
+    if (id === 'lancaster') await new Promise(resolve => setTimeout(resolve, 120));
+    return Response.json({ features: data[id] });
+  });
+  assert.ok(Date.now() - before >= 350);
+  assert.ok(Date.now() - before < 1200);
+  assert.deepEqual(result.suggestions.map(item => item.city), ['Fort Mill', 'Indian Land']);
+  assert.deepEqual(result.sources.map(item => item.id), ['york-sc', 'lancaster-sc']);
+  assert.deepEqual(aborted, ['nc']);
+});
+
+test('an empty fast source does not start the result grace period', async () => {
+  const data = fixtures(), before = Date.now();
+  const result = await addressSuggestions({}, { query: '101 ma' }, undefined, async value => {
+    const id = source(new URL(value));
+    if (id === 'nc') return Response.json({ features: [] });
+    if (id === 'lancaster') return new Promise(() => {});
+    await new Promise(resolve => setTimeout(resolve, 450));
+    return Response.json({ features: data.york });
+  });
+  assert.ok(Date.now() - before >= 800);
+  assert.ok(Date.now() - before < 1600);
+  assert.equal(result.suggestions[0].city, 'Fort Mill');
+  assert.deepEqual(result.sources.map(item => item.id), ['nc-addressnc', 'york-sc']);
 });
 
 test('all slow providers time out together after four seconds', async () => {
