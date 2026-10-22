@@ -184,3 +184,49 @@ test('lookup failure leaves typed text and manual Enter submission available whi
   assert.equal(component.input.getAttribute('autocomplete'), 'section-lead street-address');
   assert.equal(component.input.getAttribute('aria-describedby'), 'existing-address-help project-address-lookup-status');
 });
+
+test('existing options narrow synchronously while background lookup finds matches omitted from the earlier list', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup); cleanup(t,component,control);
+  const main = address(), maple = address('101 Maple Dr','Charlotte','NC','28277'), extra = address('101 Main St E','Rock Hill','SC','29730');
+  component.type('101 ma');const broad = await control.waitFor(1);broad.resolve({suggestions:[main,maple]});await settle();
+  component.type('101 mai');
+  assert.equal(component.popup.hidden,false);assert.equal(component.list.children.length,1,'Cached matches filter before any network response.');
+  assert.equal(component.list.children[0].children[0].textContent,main.street);assert.match(component.status.textContent,/Checking for more/);
+  const refined = await control.waitFor(2);refined.resolve({suggestions:[main,extra]});await settle();
+  assert.equal(component.list.children.length,2,'Refined search can add an address absent from the truncated broad response.');
+  component.type('101 ma');assert.equal(component.popup.hidden,false);assert.equal(component.list.children.length,3);
+  await new Promise(resolve => setTimeout(resolve,10));assert.equal(control.calls.length,2,'Backspacing reuses the completed broad query.');
+});
+
+test('a broader in-flight response is reused for the current prefix without showing its eliminated options', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup);cleanup(t,component,control);
+  component.type('101 ma');const broad = await control.waitFor(1);
+  component.type('101 mai');const refined = await control.waitFor(2);assert.equal(broad.signal.aborted,false);
+  broad.resolve({suggestions:[address(),address('101 Maple Dr')]});await settle();
+  assert.equal(component.popup.hidden,false);assert.equal(component.list.children.length,1);
+  assert.equal(component.list.children[0].children[0].textContent,'101 Main St');
+  refined.reject(new Error('Synthetic provider outage'));await settle();
+  assert.equal(component.popup.hidden,false);assert.equal(component.list.children.length,1,'A failed refresh retains usable real matches.');
+  component.key('Enter');assert.equal(component.input.value,address().display);
+});
+
+test('changed house numbers discard nonmatching cached options immediately and reset removes the visitor cache', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup);cleanup(t,component,control);
+  component.type('101');const first = await control.waitFor(1);first.resolve({suggestions:[address()]});await settle();
+  component.type('1010');assert.equal(component.popup.hidden,true);assert.equal(component.list.children.length,0);
+  assert.equal(component.input.getAttribute('aria-activedescendant'),null);
+  const next = await control.waitFor(2);component.widget.clear();assert.equal(next.signal.aborted,true);
+  component.type('101');assert.equal(component.popup.hidden,true,'Previous visitor matches are not reused after reset.');
+  const newVisitor = await control.waitFor(3);assert.equal(newVisitor.query,'101');
+});
+
+test('typing keeps at most two requests active and reset rejects both late replies', async t => {
+  const control = controlledLookup(), component = fixture(control.lookup);cleanup(t,component,control);
+  component.type('101');const broad = await control.waitFor(1);
+  component.type('101 m');const middle = await control.waitFor(2);
+  component.type('101 ma');const latest = await control.waitFor(3);
+  assert.equal(broad.signal.aborted,false);assert.equal(middle.signal.aborted,true);assert.equal(latest.signal.aborted,false);
+  component.widget.clear();component.input.value='';assert.equal(broad.signal.aborted,true);assert.equal(latest.signal.aborted,true);
+  for(const call of control.calls)call.resolve({suggestions:[address()]});await settle();
+  assert.equal(component.popup.hidden,true);assert.equal(component.list.children.length,0);assert.equal(component.status.textContent,'');
+});
