@@ -16,7 +16,7 @@ Both initially require only **name and phone**. Email/address are optional; a pr
 
 Appointments begin **Monday, October 26, 2026**. Hours are **all seven days 8:00 am–7:00 pm Eastern**, **90-minute visits**, **30-minute travel buffer**, latest start **5:30 pm**. Staff blocks/app appointments reduce choices. This calendar does not read Outlook, so staff enter outside commitments as blocks. [Calendar instructions](CALENDAR-SETUP.md)
 
-The rendering key is privately connected but real generation/quality remains unverified. Offer: three successful renders per normalized phone/event, 50/day global attempt cap. Booking and provider readiness are separate requirements.
+The rendering key is privately connected and an authorized live image test completed successfully. Offer: three successful renders per normalized phone/event, 50/day global attempt cap. Booking and provider readiness are separate requirements. Both layouts support native autofill and local address suggestions, with manual entry available.
 
 ## Public and private QR
 

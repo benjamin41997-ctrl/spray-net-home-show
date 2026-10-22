@@ -88,11 +88,20 @@ export async function bookConsultation(env, params, options = {}) {
   if (!address || address.length > 180) stop(400, 'INVALID_ADDRESS', 'Enter the project street address before booking your consultation.');
   const email = String(params.email ?? lead.email ?? '').trim();
   if (email.length > 254 || (email && !EMAIL.test(email))) stop(400, 'INVALID_EMAIL', 'Check your optional email address.');
+  function addressPart(value, max) {
+    if (value == null) return '';
+    if (typeof value !== 'string' || value.trim().length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))
+      stop(400, 'INVALID_ADDRESS', 'Check your project address details.');
+    return value.trim();
+  }
+  const city = addressPart(lead.city, 100), state = addressPart(lead.state, 2).toUpperCase(), zip = addressPart(lead.zip, 10);
+  if ((state && !/^[A-Z]{2}$/.test(state)) || (zip && !/^\d{5}(?:-\d{4})?$/.test(zip)))
+    stop(400, 'INVALID_ADDRESS', 'Check your project state and ZIP code, or leave those details blank.');
   const startAt = instant(params.start), start = Date.parse(startAt), end = start + config.durationMinutes * 60000,
     endAt = new Date(end).toISOString(), now = options.now ?? Date.now();
   if ((params.timeZone && params.timeZone !== config.timeZone) || (params.end && instant(params.end) !== endAt))
     stop(400, 'INVALID_SLOT', 'Choose a consultation time from the available options.');
-  const inputHash = await hash(JSON.stringify([startAt,endAt,email.toLowerCase(),address]));
+  const inputHash = await hash(JSON.stringify([startAt,endAt,email.toLowerCase(),address,city,state,zip]));
   return locked(env, async () => {
     const existing = await env.DB.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').bind(lead.id).first();
     if (existing && existing.calendar_key !== CALENDAR_KEY)
@@ -125,10 +134,10 @@ export async function bookConsultation(env, params, options = {}) {
         CALENDAR_KEY,lead.id,after,before,CALENDAR_KEY,after,before);
     // D1 batch is a transaction: a failed contact update must roll back the
     // appointment too, otherwise a phone-first lead could lose its travel address.
-    const contacts = env.DB.prepare(`UPDATE leads SET address=?,email=?,consultation_preference='schedule_now'
+    const contacts = env.DB.prepare(`UPDATE leads SET address=?,email=?,city=?,state=?,zip=?,consultation_preference='schedule_now'
       WHERE id=? AND EXISTS (SELECT 1 FROM consultation_bookings WHERE lead_id=? AND calendar_key=?
         AND transaction_id=? AND input_hash=? AND status='confirmed')`)
-      .bind(address,email,lead.id,lead.id,CALENDAR_KEY,transaction,inputHash);
+      .bind(address,email,city,state,zip,lead.id,lead.id,CALENDAR_KEY,transaction,inputHash);
     const results = await env.DB.batch([reservation,contacts]);
     if (Number(results[0]?.meta?.changes) !== 1) stop(409, 'SLOT_UNAVAILABLE', 'That time is no longer available. Please choose another.');
     const saved = await env.DB.prepare('SELECT * FROM consultation_bookings WHERE lead_id=? AND transaction_id=?')

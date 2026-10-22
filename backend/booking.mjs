@@ -100,7 +100,7 @@ async function http(fetcher, url, init, deadline, allowNotFound = false) {
   const timeout = Math.min(15000, deadline - Date.now()); if (timeout <= 0) unavailable();
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
   try {
-    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error' });
+    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
     if (allowNotFound && (response.status === 404 || response.status === 410)) return null;
     if (!response.ok) {
       // Do not expose OAuth error descriptions, calendar IDs, or event details.

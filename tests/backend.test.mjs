@@ -120,17 +120,109 @@ async function withFetch(fetcher, work) {
 test('readiness fails closed for missing bindings, secrets, schema; CORS requires exact origins', async () => {
   const unconfigured = await request({}, '/api/health', { headers: { Origin: '' } });
   assert.deepEqual(await unconfigured.json(), { ready: false, renderAvailable: false, freeRenders: 3,
-    bookingAvailable: false, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
+    addressSuggestionsAvailable: false, bookingAvailable: false, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
   assert.equal(configuration(environment({ RATE_LIMIT_SALT: 'REPLACE_WITH_RANDOM_RATE_LIMIT_SALT' })).ready, false);
   const env = environment();
   assert.deepEqual(await (await request(env, '/api/health')).json(), { ready: true, renderAvailable: true, freeRenders: 3,
-    bookingAvailable: true, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
+    addressSuggestionsAvailable: true, bookingAvailable: true, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
   const denied = await request(env, '/api/health', { headers: { Origin: `${origin}.evil.example` } });
   assert.equal(denied.status, 403); assert.equal(denied.headers.get('Access-Control-Allow-Origin'), null);
   const allowed = await request(env, '/api/health'); assert.equal(allowed.headers.get('Access-Control-Allow-Origin'), origin);
   assert.equal((await request(env, '/api/leads', { method: 'OPTIONS' })).status, 204);
   env.DB.sqlite.exec('DROP TABLE leads');
   assert.equal((await (await request(env, '/api/health')).json()).ready, false);
+});
+
+function addressFixture(url) {
+  const target = new URL(url);
+  if (target.hostname === 'services.nconemap.gov') return new Response(JSON.stringify({ features: [{ attributes: {
+    st_address: '101 MAIN ST', post_comm: 'BELMONT', post_code: '28012', state: 'NC', county: 'GASTON',
+  }, geometry: { x: -80.9, y: 35.1 } }] }));
+  if (target.href.startsWith('https://services1.arcgis.com/2AGLxyiJoNiVHKwq/')) return new Response(JSON.stringify({ features: [{ attributes: {
+    WHOLE_ADDRESS: '101 MAIN ST', POST_COMM: 'FORT MILL', POST_CODE: 29715, STATE: 'SC', COUNTY: 'York',
+  }, geometry: { x: -80.9, y: 35.1 } }] }));
+  if (target.href.startsWith('https://services3.arcgis.com/rJcpRneDUBgTeCT3/')) return new Response(JSON.stringify({ features: [{ attributes: {
+    WHOLE_ADDR: '101 MAIN ST', ADDR_HN: 101, ST_NAME: 'MAIN', POSTAL_TOW: 'INDIAN LAND', POSTAL_STA: 'SC', POSTAL_ZIP: 29707, COUNTY: 'LANCASTER',
+  }, geometry: { x: -80.8, y: 34.95 } }] }));
+  return new Response(JSON.stringify({ features: [] }));
+}
+
+test('public address suggestions return structured fixed-provider results before lead capture with exact CORS and no credentials forwarded', async () => {
+  const env = environment(); let calls = 0;
+  await withFetch(async (url, init) => {
+    calls++; const target = new URL(url);
+    assert.equal(target.protocol, 'https:'); assert.ok(target.hostname.endsWith('arcgis.com') || target.hostname === 'services.nconemap.gov');
+    const headers = new Headers(init.headers); assert.equal(headers.get('Authorization'), null);
+    assert.equal(headers.get('CF-Connecting-IP'), null); assert.equal(headers.get('Cookie'), null);
+    assert.equal(JSON.stringify(init).includes(env.ADMIN_TOKEN), false); assert.equal(target.href.includes(env.ADMIN_TOKEN), false);
+    return addressFixture(url);
+  }, async () => {
+    const response = await request(env, '/api/addresses/suggest', { method: 'POST', body: { query: '101 Main', apiBase: 'https://evil.example' }, token: env.ADMIN_TOKEN });
+    assert.equal(response.status, 200); assert.equal(response.headers.get('Access-Control-Allow-Origin'), origin);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store'); const result = await response.json();
+    assert.ok(result.suggestions.some(item => item.city === 'Belmont' && item.state === 'NC' && item.zip === '28012'));
+    assert.ok(result.suggestions.some(item => item.city === 'Fort Mill' && item.state === 'SC' && item.zip === '29715'));
+    assert.ok(result.suggestions.some(item => item.city === 'Indian Land' && item.state === 'SC' && item.zip === '29707'));
+    for (const item of result.suggestions) {
+      assert.equal(typeof item.display, 'string'); assert.equal(item.street, '101 Main St');
+      assert.deepEqual(Object.keys(item).sort(), ['city','display','state','street','zip']);
+    }
+    assert.ok(result.sources.length >= 2); assert.ok(calls >= 2 && calls <= 3);
+    const rejected = await request(env, '/api/addresses/suggest', { method: 'POST', body: { query: '101 Main' }, headers: { Origin: 'https://evil.example' } });
+    assert.equal(rejected.status, 403); assert.equal(rejected.headers.get('Access-Control-Allow-Origin'), null);
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 0);
+    for (const row of env.DB.sqlite.prepare('SELECT * FROM rate_limits').all()) {
+      assert.match(row.bucket, /^[0-9a-f]{64}$/); assert.equal(JSON.stringify(row).includes('101 Main'), false);
+      assert.equal(JSON.stringify(row).includes('203.0.113.8'), false);
+    }
+  });
+});
+
+test('address endpoint rejects invalid bodies, short or missing numbered prefixes and wrong methods without outbound requests', async () => {
+  const env = environment(); let calls = 0;
+  await withFetch(async () => { calls++; throw new Error('Invalid address input must not trigger an outbound request.'); }, async () => {
+    assert.equal((await request(env, '/api/addresses/suggest')).status, 405);
+    for (const body of [null, [], {}, { query: '' }, { query: '1 M' }, { query: 'Main Street' }, { query: 'https://evil.example' }, { query: '101 Main', callback: 'https://evil.example', padding: 'x'.repeat(17000) }]) {
+      const response = await request(env, '/api/addresses/suggest', { method: 'POST', body });
+      assert.ok([400,413].includes(response.status));
+    }
+    const wrongType = await worker.fetch(new Request('https://api.example/api/addresses/suggest', {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'text/plain' }, body: '101 Main' }), env);
+    assert.equal(wrongType.status, 415);
+    const notReady = await request({}, '/api/addresses/suggest', { method: 'POST', body: { query: '101 Main' }, headers: { Origin: '' } });
+    assert.equal(notReady.status, 503); assert.equal(calls, 0);
+  });
+});
+
+test('address provider failures stay safe and cannot return partial success when every source fails', async () => {
+  const env = environment(); let calls = 0;
+  await withFetch(async () => { calls++; return new Response(JSON.stringify({ error: {
+    code: 'upstream-error-private', message: `secret-upstream-message ${env.ADMIN_TOKEN}`,
+  } }), { status: 500, headers: { 'x-request-id': 'upstream-request-private' } }); }, async () => {
+    const response = await request(env, '/api/addresses/suggest', { method: 'POST', body: { query: '101 Main' } });
+    assert.equal(response.status, 503); const text = await response.text();
+    assert.equal(JSON.parse(text).error.code, 'ADDRESS_LOOKUP_UNAVAILABLE');
+    for (const value of ['upstream-error-private','secret-upstream-message',env.ADMIN_TOKEN,'upstream-request-private']) assert.equal(text.includes(value), false);
+    assert.ok(calls >= 2 && calls <= 3);
+  });
+});
+
+test('address suggestions enforce independent per-minute IP and global upstream request caps with hashed buckets', async () => {
+  const body = { query: '101 Main' };
+  for (const scope of ['ip','global']) {
+    const env = environment(), minute = Math.floor(Date.now() / 60000), ip = '203.0.113.8';
+    const key = await hash(scope === 'ip' ? `${env.RATE_LIMIT_SALT}:addresses:ip:${ip}:${minute}` : `${env.RATE_LIMIT_SALT}:addresses:global:${minute}`);
+    env.DB.sqlite.prepare('INSERT INTO rate_limits(bucket,attempts,expires_at) VALUES (?,?,?)').run(key, scope === 'ip' ? 59 : 119, (minute+2)*60000);
+    let calls = 0;
+    await withFetch(async url => { calls++; return addressFixture(url); }, async () => {
+      assert.equal((await request(env, '/api/addresses/suggest', { method: 'POST', body })).status, 200);
+      const used = calls;
+      const blocked = await request(env, '/api/addresses/suggest', { method: 'POST', body,
+        headers: scope === 'global' ? { 'CF-Connecting-IP': '203.0.113.9' } : {} });
+      assert.equal(blocked.status, 429); assert.equal((await blocked.json()).error.code, 'ADDRESS_RATE_LIMIT'); assert.equal(calls, used);
+      assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n, 0);
+    });
+  }
 });
 
 test('lead validation requires only name, phone and consent, checking optional fields when present', () => {
@@ -307,7 +399,7 @@ test('authenticated phone-only lead chooses a real adapter slot and unlocks only
   const choices = await slots.json(); assert.equal(choices.bookingAvailable, true); assert.ok(choices.slots.length > 0);
   assert.equal(choices.durationMinutes, 90); assert.equal(choices.bufferMinutes, 30);
   const options = { method: 'POST', token: person.token, key: crypto.randomUUID(), body: {
-    start: choices.slots[0].start, address: '  44 Test Project Lane  ' } };
+    start: choices.slots[0].start, address: '  44 Test Project Lane  ', city: 'Matthews', state: 'nc', zip: '28105' } };
   const booked = await request(env, `${base}/book`, options); assert.equal(booked.status, 200);
   const result = await booked.json(); assert.equal(result.booking.status, 'confirmed'); assert.equal(result.visualizerUnlocked, true);
   assert.equal(Date.parse(result.booking.end) - Date.parse(result.booking.start), 90 * 60000); assert.equal(graphCreates, beforeCreates + 1);
@@ -315,6 +407,7 @@ test('authenticated phone-only lead chooses a real adapter slot and unlocks only
   assert.deepEqual(await repeated.json(), result); assert.equal(graphCreates, beforeCreates + 1);
   const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id);
   assert.equal(row.address, '44 Test Project Lane'); assert.equal(row.email, ''); assert.equal(row.consultation_preference, 'schedule_now');
+  assert.equal(row.city, 'Matthews'); assert.equal(row.state, 'NC'); assert.equal(row.zip, '28105');
   assert.equal(row.remaining_renders, 3); assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
   const stored = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
   assert.equal(stored.status, 'confirmed'); assert.equal(stored.attendee_email, '');
@@ -322,6 +415,50 @@ test('authenticated phone-only lead chooses a real adapter slot and unlocks only
   assert.match(event.body.content, /44 Test Project Lane/);
   const session = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
   assert.equal(session.visualizerUnlocked, true); assert.equal(session.lead.address, '44 Test Project Lane');
+});
+
+test('structured address selections persist from initial capture and booking updates without stale manual-edit parts', async () => {
+  const cases = [
+    { label: 'unchanged address preserves selected parts for older clients', update: {}, expected: ['Charlotte', 'NC', '28277'] },
+    { label: 'new selected address replaces every part', update: { address: ' 22 New Road, Fort Mill, SC 29708 ', city: ' Fort Mill ', state: 'sc', zip: '29708' }, expected: ['Fort Mill', 'SC', '29708'] },
+    { label: 'manual new address clears stale parts for older clients', update: { address: 'Unstructured new address' }, expected: ['', '', ''] },
+    { label: 'manual edit explicitly clears the selection', update: { address: 'Manual address', city: '', state: '', zip: '' }, expected: ['', '', ''] },
+    { label: 'explicit empty parts clear even an unchanged display address', update: { city: '', state: '', zip: '' }, expected: ['', '', ''] },
+  ];
+  for (const item of cases) {
+    const env = environment({ BOOKING_PROVIDER: 'internal' });
+    const person = await lead(env, { name: 'Address Visitor', phone: '7045550401', address: '11 Original Street, Charlotte, NC 28277',
+      city: 'Charlotte', state: 'nc', zip: '28277', contactConsent: true });
+    const initial = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
+    assert.equal(initial.lead.city, 'Charlotte'); assert.equal(initial.lead.state, 'NC'); assert.equal(initial.lead.zip, '28277');
+    const slots = await (await request(env, `/api/leads/${person.id}/consultation/slots`, { token: person.token })).json();
+    const options = { method: 'POST', token: person.token, key: crypto.randomUUID(), body: { start: slots.slots[0].start, ...item.update } };
+    const response = await request(env, `/api/leads/${person.id}/consultation/book`, options);
+    assert.equal(response.status, 200, item.label); assert.equal((await response.json()).visualizerUnlocked, true);
+    const row = env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id);
+    assert.deepEqual([row.city, row.state, row.zip], item.expected, item.label);
+    assert.equal(row.address, (item.update.address || initial.lead.address).trim());
+    const recovered = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
+    assert.deepEqual([recovered.lead.city, recovered.lead.state, recovered.lead.zip], item.expected);
+    assert.equal((await request(env, `/api/leads/${person.id}/consultation/book`, options)).status, 200, 'Identical request remains idempotent.');
+    const changed = await request(env, `/api/leads/${person.id}/consultation/book`, {
+      ...options, body: { ...options.body, city: 'Changed City', state: 'VA', zip: '22101' } });
+    assert.equal(changed.status, 409); assert.equal((await changed.json()).error.code, 'ALREADY_BOOKED');
+    assert.deepEqual(Object.assign({}, env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id)), Object.assign({}, row));
+  }
+});
+
+test('booking rejects invalid optional city state ZIP before reserving or changing saved contact fields', async () => {
+  const env = environment({ BOOKING_PROVIDER: 'internal' }), person = await lead(env, {
+    name: 'Address Validation', phone: '7045550402', address: '11 Original Street', city: 'Charlotte', state: 'NC', zip: '28277', contactConsent: true });
+  const initial = env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id);
+  for (const parts of [{ city: 'a'.repeat(101) }, { city: [] }, { state: 'North Carolina' }, { state: '1C' }, { zip: 'bad' }, { zip: '123456' }]) {
+    const response = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', token: person.token,
+      key: crypto.randomUUID(), body: { address: '12 New Street', start: '2026-11-01T15:00:00.000Z', ...parts } });
+    assert.equal(response.status, 400);
+    assert.deepEqual(env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id), initial);
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n, 0);
+  }
 });
 
 test('internal scheduler dispatch confirms in D1 without Microsoft credentials and staff can block, list and cancel privately', async () => {
@@ -722,7 +859,7 @@ test('renderer adapter uses server secrets and validates inline output; no URL f
   const env = environment(); let calls = 0;
   const result = await callRenderer(env, { bytes: jpeg, mime: 'image/jpeg' }, settings('photo'), async (url, init) => {
     calls++; assert.equal(url, env.RENDER_API_URL); assert.equal(init.headers.Authorization, `Bearer ${env.RENDER_API_KEY}`);
-    assert.equal(init.redirect, 'error'); assert.equal(JSON.parse(init.body).image_base64, base64Jpeg); return renderedResponse();
+    assert.equal(init.redirect, 'manual'); assert.equal(JSON.parse(init.body).image_base64, base64Jpeg); return renderedResponse();
   });
   assert.deepEqual(result.bytes, jpeg); assert.equal(calls, 1);
   await assert.rejects(callRenderer(env, { bytes: jpeg, mime: 'image/jpeg' }, settings('photo'), async () =>

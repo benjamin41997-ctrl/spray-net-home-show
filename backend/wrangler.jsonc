@@ -8,7 +8,7 @@
     "ALLOWED_ORIGINS": "https://benjamin41997-ctrl.github.io",
     "EVENT_ID": "home-show-2026-10",
     "FREE_RENDERS": "3",
-    "RENDER_ENABLED": "false",
+    "RENDER_ENABLED": "true",
     "DAILY_RENDER_LIMIT": "50",
     "LEADS_PER_IP_HOUR": "300",
     "CONSENT_VERSION": "2026-10-21-v1",

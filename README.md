@@ -2,7 +2,7 @@
 
 A quick name-and-phone lead form for Spray-Net South Charlotte, with separate tablet-kiosk and mobile layouts sharing one private backend. Visitors can then book a consultation in the app's internal calendar. Only a confirmed server appointment unlocks photos and the three-render visualizer. **No corporate Microsoft/Entra connection is required.**
 
-The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-home-show) and [Pages address](https://benjamin41997-ctrl.github.io/spray-net-home-show/) use a dedicated Cloudflare lead API/D1/private R2. See [deployment status](docs/DEPLOYMENT.md) for release verification. Local public/config.js stays disconnected for previews; the production build receives API_BASE_URL from GitHub Actions. The rendering key is configured privately, but the single approved real generation test failed. Generation is paused with RENDER_ENABLED=false while the cause is diagnosed; lead capture, booking, and private uploads remain available.
+The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-home-show) and [Pages address](https://benjamin41997-ctrl.github.io/spray-net-home-show/) use a dedicated Cloudflare lead API/D1/private R2. See [deployment status](docs/DEPLOYMENT.md) for release verification. Local public/config.js stays disconnected for previews; the production build receives API_BASE_URL from GitHub Actions. The rendering key is configured privately, and generation is enabled after a successful authorized live image test.
 
 ## Visitor and staff flow
 
@@ -14,6 +14,8 @@ The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-h
 Use [mobile mode](https://benjamin41997-ctrl.github.io/spray-net-home-show/?mode=mobile), [tablet mode](https://benjamin41997-ctrl.github.io/spray-net-home-show/?mode=tablet), and admin.html on the connected site for staff scheduling/export. The staff page requires the separate admin key, held only in tab memory, and supports consultations, blocked time, cancellation, private CSV export, and Outlook calendar-file downloads.
 
 The internal calendar does not read/sync Outlook or send email/SMS invitations. Staff must block outside commitments manually. Visitors can download a 90-minute .ics appointment; staff can download it with 30 minutes added for travel and import it into Outlook manually. Edits/cancellations do not synchronize. See [calendar setup](docs/CALENDAR-SETUP.md).
+
+Both contact forms support native browser autofill and local address suggestions using public NCOneMap, York County SC, and Lancaster County SC data. Only name and phone are required for a lead; address and email have no extra label. A selected address saves its city, state, and ZIP as separate CRM fields. Suggestions need no paid API account or key, and manual entry always works. See [address coverage and sources](docs/ADDRESS-AUTOCOMPLETE.md).
 
 Private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. Have visitors retain their link before clearing a tablet. No automatic project-link email/SMS or magic-link service is included.
 

@@ -1,0 +1,35 @@
+# Local address suggestions
+
+The optional address field supports suggestions from public government address-point data. It does not require a paid geocoder, API key, new account, or Microsoft access. Typing remains available when a suggestion is missing or a source is offline. Selecting a suggestion fills the street, city, state, and ZIP; the visitor can correct it before saving.
+
+The browser sends `POST /api/addresses/suggest` with JSON `{ "query": "101 ma" }` after a pause in typing. The backend accepts the `q` alias for compatibility. It requires a house number, at least two street letters, and at least five characters, with a maximum of 120 characters. It does not invent a house number or interpolate a street address. A comma can separate an optional city prefix, such as `101 main, Belmont`.
+
+The response contains only `suggestions: [{ display, street, city, state, zip }]` and `sources: [{ id, label, url }]`. The visible list names the government data sources; the source links are documented below. Street and city are formatted in title case; the state and ZIP retain their standard format. Suggestions are assistance with data entry, not USPS delivery validation, a service-area eligibility decision, or a guarantee that a property exists today.
+
+## Sources and public reuse
+
+| Source | Public layer | Published basis for use |
+| --- | --- | --- |
+| NC OneMap / AddressNC | [AddressNC address points](https://services.nconemap.gov/secure/rest/services/AddressNC/NC1Map_Addresses/FeatureServer/0) | The official layer provides public Query and Extract capabilities and credits North Carolina counties, the NC 911 Board, PSAPs, NCCGIA, and NC OneMap. NC OneMap's [published data-sharing guidance](https://it.nc.gov/documents/files/gicc-data-sharing-report-11-07/open) treats its data as public domain except for a specific producer restriction. No such restriction was found on this address layer. The state's [January 2023 meeting minutes](https://it.nc.gov/gicc-smac-minutes-20230111pdf/open) also describe AddressNC's free geocoding service. |
+| York County, South Carolina GIS | [Addresses layer](https://services1.arcgis.com/2AGLxyiJoNiVHKwq/arcgis/rest/services/Addresses/FeatureServer/0) | The county's [GIS Data Download page](https://www.yorkcountysc.gov/239/GIS-Data-Download) offers data at no cost and expressly permits accessing its GeoService API directly in an application. This covers Fort Mill, Tega Cay, Rock Hill, York, Clover, and other county addresses present in the data. |
+| Lancaster County, South Carolina GIS | [LC Addresses layer](https://services3.arcgis.com/rJcpRneDUBgTeCT3/arcgis/rest/services/LC_Addresses/FeatureServer/0) | The county's official [Addresses item](https://www.arcgis.com/home/item.html?id=86499488e2124bd7b80ded02d20573c1), published by `lcg-admin_LANCOGIS`, supplies public address-point data for geocoding and property identification. The published terms provide the data as is and permit derived products; source and derived data carry no accuracy warranty. This source includes Indian Land and the rest of the county within the configured bounds. |
+
+These are government-published feature layers hosted with ArcGIS technology. The implementation does not use Esri's proprietary World Geocoding results. Its storage licensing is different and must not be treated as permission to substitute the anonymous World Geocoder. The public Nominatim service also must not be substituted for autocomplete, which its usage policy prohibits.
+
+The integration queries small sets of address records rather than downloading county databases. Retaining a visitor's selected address in their lead uses the public government address data above. Keep these source credits and review a source's published terms before replacing it.
+
+## Geographic coverage
+
+Every query and every returned point is limited to the longitude/latitude box `[-81.5, 34.65, -80.25, 35.8]`. NC results must have state `NC` and county Gaston, Mecklenburg, Union, Cabarrus, Iredell, Lincoln, Catawba, Cleveland, Rowan, or Stanly. SC results must have state `SC` and county York or Lancaster, according to their respective county source.
+
+This covers the greater Charlotte portion of those counties, not every address in each county. Chester County SC and Union County SC are not covered by the current suggestion sources. Manual entry remains available. New subdivisions and unusual house-number suffixes may also need manual entry. A missing match must never prevent saving an otherwise valid address or consultation.
+
+## Privacy and failure behavior
+
+Only the typed address prefix and optional explicit city prefix reach these three government GIS sources. The backend never forwards a name, phone, email, lead identifier, studio token, visitor IP, cookie, or authorization header. The Worker uses POST so the browser's address prefix is not part of its public request URL. It does not log prefixes or permanently store lookup history. The selected address is saved only through the normal lead/booking flow.
+
+All URLs, fields, SQL structure, state/county limits, and geographic bounds are fixed in `backend/address.mjs`. SQL string literals escape apostrophes; wildcard characters and unsupported punctuation are rejected before any network request. The Worker applies its existing CORS rules, a 16 KiB request-body limit, and hashed per-IP/global request limits. Response headers must remain private/no-store.
+
+The three sources run in parallel with individual four-second deadlines. Each source is limited to 20 features and 128 KiB of decoded response bytes. NC uses its published decimal longitude/latitude attributes to avoid an unnecessary geometry reprojection. The two SC sources return only point geometry projected to longitude/latitude. Returned coordinates are checked against the same bounding box and then removed. At most eight deduplicated address suggestions are returned, interleaved across healthy sources. A failed source does not discard another source's successful results. If all sources fail, the endpoint returns `503 ADDRESS_LOOKUP_UNAVAILABLE`; the visitor can keep typing their full address. A healthy source with no matches produces an empty list, not a fabricated match.
+
+Public government services have no app-specific uptime guarantee. Availability and response speed should be checked before each show. The synthetic mocked tests cover request constraints, escaping, field filtering, geographic filtering, deduplication, timeouts, partial failures, and caller cancellation. Live source testing and deployment verification are recorded by the release operator; the module's unit tests make no external requests.

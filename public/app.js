@@ -2,6 +2,7 @@ import { COLORS, MAX_PHOTOS, validatePhoto, safeApiBase, privateMediaUrl, contac
 import { createStudioLink, parseStudioAccess, sameStudioAccess } from './access.js';
 import { renderQr } from './qr.js';
 import { createCalendarFile } from './calendar.js';
+import { attachAddressAutocomplete } from './address-autocomplete.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
@@ -13,6 +14,9 @@ const state = { lead: null, session: null, ready: false, renderAvailable: false,
   photos: [], selectedPhoto: 0, color: 0, urls: new Set(), shownResults: new Set(), slots: [], day: '', selectedSlot: '',
   pendingLead: null, pendingBooking: null, pendingRender: null, completedRender: null, savedMedia: null, loadedMediaFor: null, mediaLoadAccess: null };
 let apiBase = '', lastActivity = Date.now();
+const lookupAddress = (query,{signal}) => request('/api/addresses/suggest',{method:'POST',body:{query},signal});
+const leadAddress = attachAddressAutocomplete($('#lead-address'),{lookup:lookupAddress});
+const bookingAddress = attachAddressAutocomplete($('#booking-address'),{lookup:lookupAddress});
 function readSession() { try { return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null'); } catch { return null; } }
 function saveSession(extra = {}) { try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...readSession(), apiBase, ...extra })); } catch {} }
 function leadToken() { const b = crypto.getRandomValues(new Uint8Array(32)); return btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''); }
@@ -25,9 +29,9 @@ function setBusy(button, busy, label) {
 function objectUrl(blob) { const url = URL.createObjectURL(blob); state.urls.add(url); return url; }
 function release(url) { URL.revokeObjectURL(url); state.urls.delete(url); }
 function unlocked() { return state.session?.visualizerUnlocked === true && state.session?.booking?.status === 'confirmed'; }
-async function request(path, { method = 'GET', body, token, headers = {}, timeout = 30000 } = {}) {
+async function request(path, { method = 'GET', body, token, headers = {}, timeout = 30000, signal } = {}) {
   if (!apiBase) throw new Error('Live submissions are unavailable. Please speak with our booth team.');
-  const options = { method, headers: { ...headers }, signal: AbortSignal.timeout(timeout) };
+  const options = { method, headers: { ...headers }, signal: signal || AbortSignal.timeout(timeout) };
   if (token) options.headers.Authorization = `Bearer ${token}`;
   if (body instanceof FormData) options.body = body;
   else if (body !== undefined) { options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify(body); }
@@ -61,7 +65,10 @@ function showSaved({ focus = false } = {}) {
     } catch {}
   }
   const lead = state.session?.lead;
-  if (lead && !$('#booking-panel').contains(document.activeElement)) { $('#booking-address').value = lead.address || ''; $('#booking-email').value = lead.email || ''; }
+  if (lead && !$('#booking-panel').contains(document.activeElement)) {
+    $('#booking-address').value = lead.address || ''; bookingAddress.adopt({display:lead.address || '',street:lead.address || '',city:lead.city || '',state:lead.state || '',zip:lead.zip || ''});
+    $('#booking-email').value = lead.email || '';
+  }
   try {
     const link = privateLink(); $('#private-link').value = link; $('#copy-project-link').disabled = false;
     if (mode === 'tablet') renderQr($('#private-project-qr'), link, { label: 'Scan your private project link to continue on your phone' });
@@ -129,7 +136,7 @@ form.addEventListener('submit', async event => {
   if ($('#lead-phone').value.replace(/\D/g, '').length < 10) { $('#lead-phone').focus(); message('Please enter a complete phone number.'); return; }
   state.busy = true; const button = $('#submit-lead'); setBusy(button, true, 'Saving your details…'); message();
   try {
-    const payload = Object.fromEntries(new FormData(form)); payload.contactConsent = true; payload.event = config.event || 'Home Show'; payload.captureMode = mode;
+    const payload = {...Object.fromEntries(new FormData(form)),...leadAddress.parts()}; payload.contactConsent = true; payload.event = config.event || 'Home Show'; payload.captureMode = mode;
     const saved = readSession(); let pending = state.pendingLead || (saved?.apiBase === apiBase ? saved.pendingLead : null);
     if (pending && JSON.stringify(pending.payload) !== JSON.stringify(payload)) throw new Error('Your previous submission needs checking. Reload to recover it before changing details.');
     if (!pending) pending = { key: crypto.randomUUID(), token: leadToken(), payload };
@@ -183,7 +190,8 @@ async function loadSlots() {
   finally { state.busy = false; }
 }
 async function finishBooking(pending) {
-  $('#booking-address').value = pending.body.address; $('#booking-email').value = pending.body.email || '';
+  $('#booking-address').value = pending.body.address;
+  bookingAddress.adopt({display:pending.body.address,street:pending.body.address,city:pending.body.city || '',state:pending.body.state || '',zip:pending.body.zip || ''}); $('#booking-email').value = pending.body.email || '';
   $('#selected-time').textContent = `Checking the same request: ${dateFormat.format(new Date(pending.body.start))}, ${timeFormat.format(new Date(pending.body.start))} Eastern Time.`;
   const data = await request(`/api/leads/${state.lead.id}/consultation/book`, { method:'POST', token:state.lead.token, body:pending.body, headers:{'Idempotency-Key':pending.key}, timeout:60000 });
   if (data.visualizerUnlocked !== true || data.booking?.status !== 'confirmed') { $('#booking-status').textContent = 'We are still verifying this appointment. Your visualizer stays locked. Use Refresh to check this same request.'; return; }
@@ -199,7 +207,7 @@ $('#booking-form').addEventListener('submit', async event => {
   if (!$('#booking-address').value.trim()) { $('#booking-address').focus(); return; }
   state.busy = true; const button = $('#confirm-booking'); setBusy(button, true, 'Reserving your consultation…'); message();
   try {
-    const pending = state.pendingBooking || { key:crypto.randomUUID(), body:{ start:state.selectedSlot, address:$('#booking-address').value.trim(), email:$('#booking-email').value.trim() } };
+    const pending = state.pendingBooking || { key:crypto.randomUUID(), body:{ start:state.selectedSlot, address:$('#booking-address').value.trim(), email:$('#booking-email').value.trim(),...bookingAddress.parts() } };
     state.pendingBooking = pending; saveSession({ pendingBooking:pending }); $('#slot-picker').hidden = true; $('#booking-form').hidden = true; await finishBooking(pending);
   } catch (e) {
     clearRejectedBooking(e);
@@ -217,6 +225,7 @@ function resetVisitor() {
   for (const url of [...state.urls]) release(url);
   Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
   state.shownResults.clear(); form.reset(); $('#booking-form').reset();
+  leadAddress.clear();bookingAddress.clear();
   for (const id of ['#render-results','#studio-photos','#private-project-qr','#slot-days','#slot-times']) $(id).replaceChildren();
   for (const id of ['#access-status','#booking-status','#render-status','#selected-time','#saved-message','#confirmed-time','#confirmed-address']) $(id).textContent = '';
   $('#private-link').value = ''; $('#private-link').hidden = true; $('#retry-image').hidden = true;
@@ -239,8 +248,12 @@ if ('contacts' in navigator && 'ContactsManager' in window && mode === 'mobile')
       const available = await navigator.contacts.getProperties();
       const contacts = await navigator.contacts.select(['name','email','tel','address'].filter(p => available.includes(p)), {multiple:false});
       if (!contacts.length) return; const values = contactValues(contacts[0]); values.name = [values.firstName,values.lastName].filter(Boolean).join(' ');
+      const street = values.address;
+      const region = String(values.state || '').trim().toUpperCase();
+      values.state = ({'NORTH CAROLINA':'NC','SOUTH CAROLINA':'SC'}[region] || (/^[A-Z]{2}$/.test(region) ? region : ''));
       values.address = [values.address,values.city,values.state,values.zip].filter(Boolean).join(', ');
       for (const key of ['name','phone','address','email']) if (values[key]) form.elements[key].value = values[key];
+      leadAddress.adopt({display:values.address,street,city:values.city || '',state:values.state || '',zip:values.zip || ''});
       message('Contact details added. Please check the project address before submitting.');
     } catch (e) { if (e.name !== 'AbortError') message('Contact sharing is unavailable here. Use your keyboard’s autofill or enter your details.'); }
   });

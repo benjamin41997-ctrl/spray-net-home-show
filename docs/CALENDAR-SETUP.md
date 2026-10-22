@@ -69,7 +69,7 @@ Retain the same booking key after connection failure. Recheck that request befor
 
 ## Optional future Outlook/Graph integration
 
-Graph is optional and not needed for internal scheduling. Corporate Entra policy currently prevents that connection. Do not run OAuth or request tenant permissions merely to use the current workflow.
+Graph is optional and not needed for internal scheduling. Microsoft authorization is not configured; the internal calendar avoids that corporate access dependency. Do not run OAuth or request tenant permissions merely to use the current workflow.
 
 If the user later opts in and Microsoft administration approves, scripts/outlook-connect.mjs can bootstrap the server/web connection for ben.hessler@spray-net.com. Register the **Web** callback http://localhost:43187/oauth/callback and delegated Calendars.ReadWrite, User.Read, and offline_access. Put the app-secret value in an approved ephemeral environment, authenticate Wrangler, then run the operator utility only when authorized. It verifies mailbox/calendar ownership and pipes MICROSOFT_* secrets to the Worker without printing tokens/files or creating events; it changes live secrets. [Microsoft authorization code guidance](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow)
 

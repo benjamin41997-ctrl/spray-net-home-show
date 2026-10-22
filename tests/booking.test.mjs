@@ -36,7 +36,7 @@ function graphFixture({ busy = [], onPost, eventChange } = {}) {
   const events = new Map(); let posts = 0, tokenCalls = 0, eventGets = 0; const refreshes = [], seen = [];
   const fetcher = async (url, init = {}) => {
     const parsed = new URL(url); seen.push({ url, method: init.method || 'GET' });
-    assert.equal(init.redirect, 'error');
+    assert.equal(init.redirect, 'manual');
     if (parsed.hostname === 'login.microsoftonline.com') {
       tokenCalls++; const form = new URLSearchParams(init.body); refreshes.push(form.get('refresh_token'));
       assert.equal(form.get('grant_type'), 'refresh_token'); assert.ok(form.get('scope').includes('Calendars.ReadWrite'));

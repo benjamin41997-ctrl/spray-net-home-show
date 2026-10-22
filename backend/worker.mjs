@@ -4,6 +4,7 @@
  */
 import * as outlookBooking from './booking.mjs';
 import * as internalBooking from './internal-booking.mjs';
+import { AddressError, addressSuggestions } from './address.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -173,6 +174,19 @@ async function throttle(request, env, config) {
   await env.DB.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(Date.now()).run();
   if (result.attempts > config.leadsPerHour) fail(429, 'RATE_LIMIT', 'Too many requests. Please ask the booth team for help.');
 }
+async function throttleAddresses(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'local-development';
+  const minute = Math.floor(Date.now() / 60000), expires = (minute + 2) * 60000;
+  const ipBucket = await hash(`${env.RATE_LIMIT_SALT}:addresses:ip:${ip}:${minute}`);
+  const globalBucket = await hash(`${env.RATE_LIMIT_SALT}:addresses:global:${minute}`);
+  const reserve = bucket => env.DB.prepare(`INSERT INTO rate_limits(bucket,attempts,expires_at) VALUES (?,1,?)
+    ON CONFLICT(bucket) DO UPDATE SET attempts=attempts+1 RETURNING attempts`).bind(bucket, expires).first();
+  const local = await reserve(ipBucket);
+  if (local.attempts > 60) fail(429, 'ADDRESS_RATE_LIMIT', 'Address suggestions are busy. Enter your address manually or try again in a minute.');
+  const total = await reserve(globalBucket);
+  if (total.attempts > 120) fail(429, 'ADDRESS_RATE_LIMIT', 'Address suggestions are busy. Enter your address manually or try again in a minute.');
+  await env.DB.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(Date.now()).run();
+}
 async function createLead(request, env, config) {
   const lead = validateLead(await readJson(request));
   const clientToken = request.headers.get('X-Lead-Token'), requestKey = request.headers.get('Idempotency-Key');
@@ -312,7 +326,7 @@ export async function callRenderer(env, photo, settings, fetcher = fetch) {
       body.append('n', '1'); body.append('quality', 'low'); body.append('size', '1024x1024'); body.append('output_format', 'jpeg');
       init = { method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body };
     } else fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
-    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error' });
+    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
     if (!response.ok) await upstreamRenderFailure(response);
     const body = JSON.parse(new TextDecoder().decode(await readBounded(response, Math.ceil(MAX_RESULT / 3) * 4 + 65536)));
     // Never fetch arbitrary provider-returned URLs (SSRF/privacy). Custom APIs must return inline base64.
@@ -434,10 +448,18 @@ async function route(request, env, config) {
     }
     const booking = bookingAdapter(env).bookingConfiguration(env);
     return json({ ready, renderAvailable: ready && config.renderAvailable, freeRenders: config.freeRenders,
+      addressSuggestionsAvailable: ready,
       bookingAvailable: ready && booking.available, consultationMinutes: booking.durationMinutes,
       travelBufferMinutes: booking.bufferMinutes, timeZone: booking.timeZone });
   }
   if (!config.ready) fail(503, 'NOT_CONFIGURED', 'Live submissions are not enabled yet. Please contact the booth team.');
+  if (pathname === '/api/addresses/suggest') {
+    if (method !== 'POST') fail(405, 'METHOD_NOT_ALLOWED', 'Use the address suggestion form.');
+    const body = await readJson(request);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'ADDRESS_QUERY_INVALID', 'Enter a street number and part of the street name.');
+    await throttleAddresses(request, env);
+    return json(await addressSuggestions(env, body, request));
+  }
   if (pathname === '/api/admin/leads.csv' && method === 'GET') return exportCsv(request, env);
   const adminBlock = pathname.match(/^\/api\/admin\/blocks\/([^/]+)$/);
   const adminCancel = pathname.match(/^\/api\/admin\/bookings\/([^/]+)\/cancel$/);
@@ -472,12 +494,18 @@ async function route(request, env, config) {
         fail(400, 'INVALID_ADDRESS', 'Enter the project street address before scheduling your consultation.');
       const email = body.email === undefined ? lead.email : text(body.email, 'email', 254, false);
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address or leave it blank.');
-      const updatedLead = { ...lead, address: address.trim(), email, consultation_preference: 'schedule_now' };
+      const addressChanged = address.trim() !== lead.address.trim();
+      const city = text(body.city === undefined ? (addressChanged ? '' : lead.city) : body.city, 'city', 100, false);
+      const state = text(body.state === undefined ? (addressChanged ? '' : lead.state) : body.state, 'state', 2, false).toUpperCase();
+      const zip = text(body.zip === undefined ? (addressChanged ? '' : lead.zip) : body.zip, 'ZIP code', 10, false);
+      if ((state && !/^[A-Z]{2}$/.test(state)) || (zip && !/^\d{5}(?:-\d{4})?$/.test(zip)))
+        fail(400, 'INVALID_ADDRESS', 'Enter a two-letter state and a valid ZIP code, or leave those details blank.');
+      const updatedLead = { ...lead, address: address.trim(), email, city, state, zip, consultation_preference: 'schedule_now' };
       await bookingAdapter(env).bookConsultation(env, { lead: updatedLead, start: body.start,
         requestKey: request.headers.get('Idempotency-Key') || body.requestKey, email });
       if (env.BOOKING_PROVIDER !== 'internal')
-        await env.DB.prepare("UPDATE leads SET address=?,email=?,consultation_preference='schedule_now' WHERE id=?")
-          .bind(address.trim(), email, lead.id).run();
+        await env.DB.prepare("UPDATE leads SET address=?,email=?,city=?,state=?,zip=?,consultation_preference='schedule_now' WHERE id=?")
+          .bind(address.trim(), email, city, state, zip, lead.id).run();
       return json(await bookingFor(env, lead));
     }
     fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
@@ -542,7 +570,7 @@ export default {
         response = await route(request, bindings, config);
       }
     } catch (error) {
-      const safe = error instanceof ApiError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
+      const safe = error instanceof ApiError || error instanceof AddressError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
         ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again or contact the booth team.');
       response = json({ error: { code: safe.code, message: safe.message } }, safe.status);
     }

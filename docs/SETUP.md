@@ -8,7 +8,7 @@ Visitors submit name/phone, with optional email/address, then book a consultatio
 
 Consultations start **Monday, October 26, 2026** (BOOKING_START_DATE=2026-10-26), run **90 minutes**, **all seven days 8:00 am–7:00 pm Eastern**, with **30-minute travel gaps**. Latest visit start is **5:30 pm**. Actual outside appointments are staff blocks; Outlook placeholders named “BLOCK” are intentionally left bookable, per the user's schedule instructions.
 
-The user's rendering key is now configured privately. Three successful renders per normalized phone/event and 50 daily provider attempts are enforced server-side. A real image/output-quality test is still unverified; do not infer that a configured key proves generation succeeded.
+The user's rendering key is configured privately, and an authorized real image test completed successfully. Three successful renders per normalized phone/event and 50 daily provider attempts are enforced server-side. RENDER_ENABLED=true enables generation; false pauses it without changing lead capture or scheduling.
 
 ## Frontend and modes
 

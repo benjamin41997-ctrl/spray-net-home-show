@@ -81,24 +81,27 @@ test('booking is authoritative in D1, needs a saved lead/address, and makes no e
   await assert.rejects(bookConsultation(env,{lead:{...person,address:''},start,requestKey:'another-key'},{now}),error=>error.code==='INVALID_ADDRESS');
 });
 
-test('identical booking retries reuse the same row; changed address, slot or key never silently edits it',async()=>{
+test('identical booking retries reuse the same row; changed address parts, slot or key never silently edit it',async()=>{
   const env=environment(),person=lead(env); const original=await book(env,person); assert.deepEqual(await book(env,person),original);
-  for(const params of [{requestKey:'different-request'}, {start:'2026-10-26T15:00:00.000Z'}, {lead:{...person,address:'Different address'}}])
+  for(const params of [{requestKey:'different-request'}, {start:'2026-10-26T15:00:00.000Z'}, {lead:{...person,address:'Different address'}},
+    {lead:{...person,city:'Matthews'}},{lead:{...person,state:'SC'}},{lead:{...person,zip:'29708'}}])
     await assert.rejects(book(env,person,params),error=>error.code==='ALREADY_BOOKED');
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n,1);
 });
 
 test('phone-first appointment and booking contact details commit together or roll back together',async()=>{
   const env=environment(),person=lead(env,{address:''});
-  const requested={...person,address:'New Booking Address',email:'optional@example.com'};
+  const requested={...person,address:'New Booking Address',email:'optional@example.com',city:'Fort Mill',state:'sc',zip:'29708'};
   await book(env,requested);
-  const saved=env.DB.sqlite.prepare('SELECT address,email,consultation_preference FROM leads WHERE id=?').get(person.id);
+  const saved=env.DB.sqlite.prepare('SELECT address,email,city,state,zip,consultation_preference FROM leads WHERE id=?').get(person.id);
   assert.equal(saved.address,requested.address);assert.equal(saved.email,requested.email);assert.equal(saved.consultation_preference,'schedule_now');
+  assert.equal(saved.city,'Fort Mill');assert.equal(saved.state,'SC');assert.equal(saved.zip,'29708');
   const failing=environment(),another=lead(failing,{address:''});
   failing.DB.sqlite.exec("CREATE TRIGGER fail_contact_update BEFORE UPDATE ON leads BEGIN SELECT RAISE(ABORT,'test-contact-write-failure'); END;");
-  await assert.rejects(book(failing,{...another,address:'Cannot Persist Address'}),/test-contact-write-failure/);
+  await assert.rejects(book(failing,{...another,address:'Cannot Persist Address',city:'Fort Mill',state:'SC',zip:'29708'}),/test-contact-write-failure/);
   assert.equal(failing.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n,0);
   assert.equal(failing.DB.sqlite.prepare('SELECT address FROM leads').get().address,'');
+  assert.deepEqual({...failing.DB.sqlite.prepare('SELECT city,state,zip FROM leads').get()},{city:'Charlotte',state:'NC',zip:'28201'});
   assert.equal(failing.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM booking_calendar_locks').get().n,0);
 });
 
