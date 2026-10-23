@@ -342,6 +342,21 @@ test('address endpoint rejects invalid bodies, short or missing numbered prefixe
   });
 });
 
+test('progressive address endpoint retains CORS, input validation and private no-store response headers',async()=>{
+ const env=environment();
+ await withFetch(async url=>addressFixture(url),async()=>{
+  const response=await request(env,'/api/addresses/suggest',{method:'POST',body:{query:'101 Main'},headers:{Accept:'application/x-ndjson'}});
+  assert.equal(response.status,200);assert.match(response.headers.get('Content-Type'),/application\/x-ndjson/);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),origin);assert.equal(response.headers.get('Cache-Control'),'no-store');
+  const rows=(await response.text()).trim().split('\n').map(JSON.parse);
+  assert.equal(rows[0].done,false);assert.equal(rows.at(-1).done,true);assert.equal(rows.at(-1).sources.length,3);
+  assert.ok(rows.at(-1).suggestions.some(value=>value.city==='Belmont'));
+  const invalid=await request(env,'/api/addresses/suggest',{method:'POST',body:{query:'101 %'},headers:{Accept:'application/x-ndjson'}});
+  assert.equal(invalid.status,400);assert.equal((await invalid.json()).error.code,'ADDRESS_QUERY_INVALID');
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM leads').get().n,0);
+ });
+});
+
 test('address provider failures stay safe and cannot return partial success when every source fails', async () => {
   const env = environment(); let calls = 0;
   await withFetch(async () => { calls++; return new Response(JSON.stringify({ error: {

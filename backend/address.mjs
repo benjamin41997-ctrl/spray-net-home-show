@@ -88,6 +88,8 @@ function parseQuery(body) {
   return { number, street, name, city, state, zip, comparable: streetWords.join(' ') };
 }
 
+export function validateAddressQuery(body) { parseQuery(body); }
+
 function queryUrl(provider, query) {
   const number = provider.numericNumber ? String(Number(query.number)) : `'${sql(query.number)}'`;
   const where = `${provider.number} = ${number} AND UPPER(${provider.state}) = '${provider.stateValue}'`
@@ -144,7 +146,7 @@ function candidate(feature, provider, query) {
   return { display: `${formattedStreet}, ${formattedCity}, ${state} ${zip}`, street: formattedStreet, city: formattedCity, state, zip };
 }
 
-async function lookup(provider, query, request, fetcher) {
+async function lookup(provider, query, request, fetcher, options) {
   const controller = new AbortController();
   let rejectAbort;
   const abort = new Promise((_, reject) => { rejectAbort = reject; });
@@ -155,10 +157,32 @@ async function lookup(provider, query, request, fetcher) {
   try {
     if (request?.signal?.aborted) throw new Error('Address lookup cancelled');
     const work = (async () => {
+      // Cache only normalized public GIS matches, under a hashed query key.
+      // No contact details, visitor tokens, cookies or incoming headers enter it.
+      let cacheKey;
+      if (options.cache) {
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([provider.id,query])));
+        const key = [...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,'0')).join('');
+        cacheKey = new Request(new URL(`/__address-cache/v1/${key}`, request?.url || 'https://address-cache.invalid'));
+        try {
+          const cached = await options.cache.match(cacheKey);
+          if (cached?.ok) {
+            const value = await cached.json();
+            if (Array.isArray(value.suggestions) && value.suggestions.length <= MAX_FEATURES)
+              return {provider,suggestions:value.suggestions};
+          }
+        } catch { /* Cache outages must not disable address lookup. */ }
+      }
       const response = await fetcher(queryUrl(provider, query), { method: 'GET', headers: { Accept: 'application/json' }, redirect: 'manual', signal: controller.signal });
       const features = await boundedJson(response);
       const suggestions = features.map(feature => candidate(feature, provider, query)).filter(Boolean);
       suggestions.sort((a, b) => a.display.localeCompare(b.display));
+      if (cacheKey && !controller.signal.aborted) {
+        const write = Promise.resolve().then(()=>options.cache.put(cacheKey,new Response(JSON.stringify({suggestions}),{
+          headers:{'Content-Type':'application/json','Cache-Control':`public, max-age=${suggestions.length?600:30}`}
+        }))).catch(()=>{});
+        if (options.waitUntil) options.waitUntil(write); else await write;
+      }
       return { provider, suggestions };
     })();
     return await Promise.race([work, timeout, abort]);
@@ -166,12 +190,28 @@ async function lookup(provider, query, request, fetcher) {
 }
 
 /** Fixed public sources only. env is reserved for route compatibility; no keys. */
-export async function addressSuggestions(env, body, request, fetcher = fetch) {
+export async function addressSuggestions(env, body, request, fetcher = fetch, options = {}) {
   const query = parseQuery(body);
   if (request?.signal?.aborted) cancelled();
   const selectedProviders = providers.filter(provider => !query.state || provider.stateValue === query.state);
   const controller = new AbortController();
   const results = new Array(selectedProviders.length);
+  const limit=options.onUpdate?MAX_FEATURES*selectedProviders.length:MAX_SUGGESTIONS;
+  function snapshot() {
+    const successful = results.filter(result => result?.status === 'fulfilled').map(result => result.value);
+    // Interleave sources so a broad NC prefix does not hide nearby SC results.
+    const suggestions = [], seen = new Set();
+    for (let index = 0; index < MAX_FEATURES && suggestions.length < limit; index++) {
+      for (const result of successful) {
+        const value = result.suggestions[index];
+        if (!value) continue;
+        const key = comparable(value.display);
+        if (!seen.has(key)) { suggestions.push(value); seen.add(key); }
+        if (suggestions.length >= limit) break;
+      }
+    }
+    return {suggestions,sources:successful.map(({provider})=>({id:provider.id,label:provider.label,url:provider.url}))};
+  }
   // A slow county must not hold back addresses already found elsewhere. Once
   // there is a real match, allow 400ms for other sources, then stop pending work.
   await new Promise(resolve => {
@@ -183,10 +223,13 @@ export async function addressSuggestions(env, body, request, fetcher = fetch) {
     };
     request?.signal?.addEventListener('abort', finish, { once: true });
     selectedProviders.forEach((provider, index) => {
-      lookup(provider, query, { signal: controller.signal }, fetcher).then(value => {
+      lookup(provider, query, { signal: controller.signal, url: request?.url }, fetcher, options).then(value => {
         if (finished) return;
         results[index] = { status: 'fulfilled', value };
-        if (value.suggestions.length && !grace) grace = setTimeout(finish, RESULT_GRACE_MS);
+        if (options.onUpdate) options.onUpdate(snapshot());
+        // Streaming callers receive each source immediately, then retain all
+        // later counties rather than cutting off slower NC/SC matches.
+        else if (value.suggestions.length && !grace) grace = setTimeout(finish, RESULT_GRACE_MS);
       }, () => {
         if (!finished) results[index] = { status: 'rejected' };
       }).finally(() => { if (!finished && --remaining === 0) finish(); });
@@ -195,16 +238,5 @@ export async function addressSuggestions(env, body, request, fetcher = fetch) {
   if (request?.signal?.aborted) cancelled();
   const successful = results.filter(result => result?.status === 'fulfilled').map(result => result.value);
   if (!successful.length) throw new AddressError(503, 'ADDRESS_LOOKUP_UNAVAILABLE', 'Address suggestions are temporarily unavailable. You can type the complete address instead.');
-  // Interleave sources so a broad NC prefix does not hide nearby SC results.
-  const suggestions = [], seen = new Set();
-  for (let index = 0; index < MAX_FEATURES && suggestions.length < MAX_SUGGESTIONS; index++) {
-    for (const result of successful) {
-      const value = result.suggestions[index];
-      if (!value) continue;
-      const key = comparable(value.display);
-      if (!seen.has(key)) { suggestions.push(value); seen.add(key); }
-      if (suggestions.length >= MAX_SUGGESTIONS) break;
-    }
-  }
-  return { suggestions, sources: successful.map(({ provider }) => ({ id: provider.id, label: provider.label, url: provider.url })) };
+  return snapshot();
 }

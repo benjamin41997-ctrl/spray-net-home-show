@@ -3,6 +3,7 @@ import { createStudioLink, parseStudioAccess, sameStudioAccess } from './access.
 import { renderQr } from './qr.js';
 import { createCalendarFile } from './calendar.js';
 import { attachAddressAutocomplete } from './address-autocomplete.js';
+import { requestAddressSuggestions } from './address-client.js';
 import { createVisitRecorder } from './visits.js';
 import { VISUALIZER_SURFACES, selectedSurfaces, visitorAppointment } from './project-options.js';
 import { createVisitorStorage } from './visitor-storage.js';
@@ -19,7 +20,7 @@ const state = { lead: null, session: null, ready: false, renderAvailable: false,
   photos: [], selectedPhoto: 0, color: 0, urls: new Set(), shownResults: new Set(), slots: [], day: '', selectedSlot: '',
   pendingLead: null, pendingBooking: null, pendingRender: null, completedRender: null, savedMedia: null, loadedMediaFor: null, mediaLoadAccess: null };
 let apiBase = '', lastActivity = Date.now();
-const lookupAddress = (query,{signal}) => request('/api/addresses/suggest',{method:'POST',body:{query},signal});
+const lookupAddress = (query,options) => requestAddressSuggestions(apiBase,query,options);
 const leadAddress = attachAddressAutocomplete($('#lead-address'),{lookup:lookupAddress});
 const bookingAddress = attachAddressAutocomplete($('#booking-address'),{lookup:lookupAddress});
 const visits = createVisitRecorder((access,body,signal) => request(`/api/leads/${access.id}/visits`,{method:'POST',token:access.token,body,signal}));

@@ -18,6 +18,8 @@ Appointments are offered **October 26–November 8, 2026**, inclusive, every day
 
 The rendering key is privately connected and an authorized live image test completed successfully. Offer: three successful renders per normalized phone/event, 50/day global attempt cap. Booking and provider readiness are separate requirements. Both layouts support native autofill and local address suggestions, with manual entry available.
 
+Address suggestions start immediately at the first eligible prefix. New pages receive results progressively, so the first county's real matches appear while other sources are still loading. A pool of up to 60 real candidates narrows locally, with at most eight choices displayed. Short delays coalesce further network searches. Public GIS results are cached per provider/query at the server edge for ten minutes (empty results for 30 seconds), under hashed query keys without contact fields or credentials. Visitor-local suggestions clear with the tablet reset; shared cache entries contain only public address fields. Older cached pages still receive compatible JSON responses.
+
 ## Public and private QR
 
 The public QR uses the current HTTPS page origin/path with ?mode=mobile, without a lead/token. Use it for signage. The standalone [public mobile QR SVG](mobile-qr.svg) encodes the production URL and its rendered SVG decoded independently. Recreate if the final URL changes; test physical prints/displays.

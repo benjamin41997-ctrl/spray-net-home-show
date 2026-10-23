@@ -4,7 +4,8 @@
  */
 import * as outlookBooking from './booking.mjs';
 import * as internalBooking from './internal-booking.mjs';
-import { AddressError, addressSuggestions } from './address.mjs';
+import { AddressError } from './address.mjs';
+import { addressResponse } from './address-response.mjs';
 import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead } from './owner.mjs';
 import { OwnerAuthError, requireOwner } from './owner-auth.mjs';
 import { selectedSurfaces } from '../public/project-options.js';
@@ -444,7 +445,7 @@ async function exportCsv(request, env) {
   const csv = '\uFEFF' + [columns.map(csvCell).join(','), ...results.map(row => columns.map(c => csvCell(row[c])).join(','))].join('\r\n');
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="home-show-leads.csv"' } });
 }
-async function route(request, env, config) {
+async function route(request, env, config, context) {
   const { pathname } = new URL(request.url), method = request.method;
   if (pathname === '/api/health' && method === 'GET') {
     let ready = config.ready;
@@ -467,7 +468,7 @@ async function route(request, env, config) {
     const body = await readJson(request);
     if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'ADDRESS_QUERY_INVALID', 'Enter a street number and part of the street name.');
     await throttleAddresses(request, env);
-    return json(await addressSuggestions(env, body, request));
+    return addressResponse(env, body, request, context);
   }
   if (pathname === '/api/admin/leads.csv' && method === 'GET') return exportCsv(request, env);
   if (pathname === '/api/admin/leads') {
@@ -583,7 +584,7 @@ async function route(request, env, config) {
   fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
 }
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const config = configuration(env), origin = request.headers.get('Origin');
     const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', Vary: 'Origin' };
     if (origin && !config.origins.includes(origin)) return json({ error: { code: 'ORIGIN_DENIED', message: 'This website is not allowed to use the service.' } }, 403, headers);
@@ -597,7 +598,7 @@ export default {
       else {
         // Use primary reads for lead creation followed immediately by uploads/renders.
         const bindings = env.DB?.withSession ? { ...env, DB: env.DB.withSession('first-primary') } : env;
-        response = await route(request, bindings, config);
+        response = await route(request, bindings, config, context);
       }
     } catch (error) {
       const safe = error instanceof ApiError || error instanceof AddressError || error instanceof OwnerError || error instanceof OwnerAuthError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError

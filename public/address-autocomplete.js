@@ -38,7 +38,7 @@ export function filterAddressSuggestions(query, values) {
   });
 }
 
-export function attachAddressAutocomplete(input, {lookup, delay = 200} = {}) {
+export function attachAddressAutocomplete(input, {lookup, delay = 120} = {}) {
   if (!input || typeof lookup !== 'function') throw new TypeError('An address field and lookup function are required.');
   const doc = input.ownerDocument, wrapper = doc.createElement('div'); wrapper.className = 'address-entry';
   input.before(wrapper); wrapper.append(input);
@@ -64,6 +64,9 @@ export function attachAddressAutocomplete(input, {lookup, delay = 200} = {}) {
   }
   function choose(index) {
     const item = items[index];if (!item) return;
+    select(item);
+  }
+  function select(item) {
     cancel();input.value = item.display;selected = item;close();announce('Address selected. You can edit it if needed.');input.focus({preventScroll:true});
   }
   function position() {
@@ -81,7 +84,7 @@ export function attachAddressAutocomplete(input, {lookup, delay = 200} = {}) {
     items.forEach((item,index) => {
       const option = doc.createElement('div');option.id = `${list.id}-${index}`;option.className = 'address-option';option.setAttribute('role','option');option.setAttribute('aria-selected','false');
       const street = doc.createElement('strong'), place = doc.createElement('span');street.textContent = item.street || item.display;place.textContent = [item.city,[item.state,item.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');option.append(street,place);
-      option.addEventListener('pointerdown',event => event.preventDefault());option.addEventListener('click',() => choose(index));list.append(option);
+      option.addEventListener('pointerdown',event => event.preventDefault());option.addEventListener('click',() => select(item));list.append(option);
     });
     popup.hidden = !items.length;input.setAttribute('aria-expanded',String(Boolean(items.length)));
     if (!items.length) close();
@@ -107,7 +110,7 @@ export function attachAddressAutocomplete(input, {lookup, delay = 200} = {}) {
   }
   async function search(query, version) {
     const key = queryKey(query);
-    if (version !== sequence || input !== doc.activeElement || pending.has(key) || cached(key)) return;
+    if (version !== sequence || input !== doc.activeElement || pending.has(key) || cached(key)?.complete) return;
     // Keep one useful broader lookup alive while a refined query runs. Typing
     // must not repeatedly throw away a response that is about to arrive.
     if (pending.size >= 2) {
@@ -118,16 +121,19 @@ export function attachAddressAutocomplete(input, {lookup, delay = 200} = {}) {
     const entry = {controller:new AbortController(),version};pending.set(key,entry);
     const timeout = setTimeout(() => entry.controller.abort(),6500);
     refresh(input.value.trim(),true);
-    try {
-      const result = await lookup(query,{signal:entry.controller.signal});
-      if (version !== sequence || entry.controller.signal.aborted) return;
+    function receive(result) {
+      if (version !== sequence || entry.controller.signal.aborted || pending.get(key) !== entry) return;
       const values = (Array.isArray(result?.suggestions) ? result.suggestions : []).map(suggestion).filter(Boolean);
       if (values.length) {
-        cache.delete(key);cache.set(key,{values,time:Date.now()});
+        cache.delete(key);cache.set(key,{values,time:Date.now(),complete:result?.done===true});
         while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
       }
-      pending.delete(key);
-      if (input === doc.activeElement && !selected && eligibleAddressQuery(input.value)) refresh(input.value.trim(),pending.has(queryKey(input.value)));
+      if (input === doc.activeElement && !selected && eligibleAddressQuery(input.value)) refresh(input.value.trim(),result?.done!==true);
+    }
+    try {
+      const result = await lookup(query,{signal:entry.controller.signal,onUpdate:receive});
+      receive({...result,done:true});
+      if (pending.get(key) === entry) pending.delete(key);
     } catch (error) {
       if (version !== sequence || pending.get(key) !== entry) return;
       pending.delete(key);
@@ -145,12 +151,18 @@ export function attachAddressAutocomplete(input, {lookup, delay = 200} = {}) {
     }
     const query = input.value.trim(), key = queryKey(query);
     for (const [oldKey,entry] of pending) if (houseNumber(oldKey) !== houseNumber(query)) {entry.controller.abort();pending.delete(oldKey);}
-    const complete = Boolean(cached(key));refresh(query,!complete);
-    if (!complete && !pending.has(key)) {const version = sequence;timer = setTimeout(() => search(query,version),delay);}
+    const complete = cached(key)?.complete===true;refresh(query,!complete);
+    if (!complete && !pending.has(key)) {
+      const version = sequence;
+      // First useful prefix goes out immediately. Visible real matches narrow
+      // synchronously, with refined network work coalesced while typing.
+      const wait = pending.size ? delay : matches(query).length ? delay*2 : 0;
+      timer = setTimeout(() => search(query,version),wait);
+    }
   }
   input.addEventListener('input',changed);input.addEventListener('compositionend',changed);
   input.addEventListener('change',() => {
-    if (input === doc.activeElement && input.value.trim() !== selected?.display && !pending.has(queryKey(input.value)) && !cached(queryKey(input.value))) changed();
+    if (input === doc.activeElement && input.value.trim() !== selected?.display && !pending.has(queryKey(input.value)) && !cached(queryKey(input.value))?.complete) changed();
   });
   input.addEventListener('focus',() => {
     if (input.value.trim() === selected?.display) return;

@@ -70,8 +70,8 @@ function fixture(lookup) {
 }
 function controlledLookup() {
   const calls = [], waiters = [];
-  const lookup = (query, { signal }) => new Promise((resolve, reject) => {
-    calls.push({ query, signal, resolve, reject });
+  const lookup = (query, { signal,onUpdate }) => new Promise((resolve, reject) => {
+    calls.push({ query, signal,onUpdate, resolve, reject });
     for (const waiter of [...waiters]) if (calls.length >= waiter.number) {
       waiters.splice(waiters.indexOf(waiter), 1); waiter.resolve(calls[waiter.number - 1]);
     }
@@ -229,4 +229,28 @@ test('typing keeps at most two requests active and reset rejects both late repli
   component.widget.clear();component.input.value='';assert.equal(broad.signal.aborted,true);assert.equal(latest.signal.aborted,true);
   for(const call of control.calls)call.resolve({suggestions:[address()]});await settle();
   assert.equal(component.popup.hidden,true);assert.equal(component.list.children.length,0);assert.equal(component.status.textContent,'');
+});
+
+test('streaming matches appear before lookup completion, narrow immediately, and cannot return after reset',async t=>{
+ const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+ component.type('101 ma');const call=await control.waitFor(1);
+ call.onUpdate({suggestions:[address(),address('101 Maple Dr')],done:false});
+ assert.equal(component.popup.hidden,false);assert.equal(component.list.children.length,2);
+ component.type('101 mai');assert.equal(component.list.children.length,1);
+ call.onUpdate({suggestions:[address(),address('101 Main St E','Fort Mill','SC','29715')],done:false});
+ assert.equal(component.list.children.length,2);
+ component.widget.clear();call.onUpdate({suggestions:[address()],done:true});
+ assert.equal(component.popup.hidden,true);assert.equal(component.list.children.length,0);
+});
+
+test('a partial stream interrupted on blur restarts and its old completion cannot clear the replacement request',async t=>{
+ const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+ const other=component.document.createElement('input');component.form.append(other);
+ component.type('101 ma');const first=await control.waitFor(1);first.onUpdate({suggestions:[address()],done:false});
+ other.focus();component.input.focus();const second=await control.waitFor(2);
+ first.resolve({suggestions:[address()],done:true});await settle();
+ component.input.dispatchEvent(new Event('change'));await new Promise(resolve=>setTimeout(resolve,10));
+ assert.equal(control.calls.length,2,'The late old reply must not erase the current in-flight request.');
+ second.resolve({suggestions:[address(),address('101 Main St E','Fort Mill','SC','29715')],done:true});await settle();
+ assert.equal(component.list.children.length,2);
 });
