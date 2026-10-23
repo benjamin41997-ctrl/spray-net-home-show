@@ -61,6 +61,7 @@ function showSaved({ focus = false } = {}) {
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
   $('#saved-title').textContent=name?`Thanks, ${name}, you’re on our list.`:'Thanks, you’re on our list.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
+  $('.private-access').hidden = !confirmed; $('#next-visitor').hidden = !confirmed;
   const calendar = $('#download-appointment'); calendar.hidden = true;
   if (calendar.dataset.objectUrl) { release(calendar.dataset.objectUrl); delete calendar.dataset.objectUrl; calendar.removeAttribute('href'); }
   if (confirmed) {
@@ -79,7 +80,7 @@ function showSaved({ focus = false } = {}) {
   }
   try {
     const link = privateLink(); $('#private-link').value = link; $('#copy-project-link').disabled = false;
-    if (mode === 'tablet') renderQr($('#private-project-qr'), link, { label: 'Scan your private project link to continue on your phone' });
+    if (mode === 'tablet' && confirmed) renderQr($('#private-project-qr'), link, { label: 'Scan your private project link to continue on your phone' });
   } catch { $('#copy-project-link').disabled = true; $('#private-qr-card').hidden = true; $('#access-status').textContent = 'Private project links are available on the published HTTPS site.'; }
   if (focus) $('#saved-title').focus({ preventScroll: true });
   updateRenderAvailability();
@@ -189,6 +190,7 @@ function renderSlots() {
 async function loadSlots() {
   if (state.busy || !state.lead) return;
   $('#booking-panel').hidden = false; $('#booking-invitation').hidden=true; $('#booking-title').focus({ preventScroll: true }); state.busy = true;
+  if (mode === 'tablet') window.scrollTo({top:0,behavior:'instant'});
   $('#booking-status').textContent = 'Checking available consultation times…'; $('#slot-picker').hidden = true; $('#booking-form').hidden = true; message();
   try {
     await refreshSession(); if (unlocked()) { showSaved(); return; }

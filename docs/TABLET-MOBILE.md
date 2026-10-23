@@ -22,7 +22,9 @@ The rendering key is privately connected and an authorized live image test compl
 
 The public QR uses the current HTTPS page origin/path with ?mode=mobile, without a lead/token. Use it for signage. The standalone [public mobile QR SVG](mobile-qr.svg) encodes the production URL and its rendered SVG decoded independently. Recreate if the final URL changes; test physical prints/displays.
 
-A private QR/link appears after a saved lead, preserving #studio=<lead-id>.<visitor-token>. It resumes scheduling while unbooked and is **bearer access**, not an unlock flag. Show only its visitor, let them retain it, and clear before the next tablet user. Never publish, batch-export, log, or send its payload to analytics. The page scrubs the fragment and verifies against the trusted configured API.
+A private QR/link appears on the tablet after a confirmed consultation, preserving #studio=<lead-id>.<visitor-token>. It is **bearer access**, not an unlock flag. Show only its visitor, let them retain it, and clear before the next tablet user. Never publish, batch-export, log, or send its payload to analytics. The page scrubs the fragment and verifies against the trusted configured API.
+
+While scheduling on a tablet, the calendar fills a wider right column. The public QR and two project photos occupy the left column; the third photo returns on the lead-entry screen. Dates use seven columns on landscape tablets, and times use seven or eight columns according to screen width. Address/email and the selected-time/confirmation controls share rows. Buttons retain at least 44-pixel touch targets in the short-screen layout. Private sharing controls and the lower next-visitor button remain hidden until booking confirmation; the header next-visitor control remains available for staff. Narrow screens, browser zoom, and the on-screen keyboard can still scroll rather than clipping controls.
 
 QR generation uses the local MIT encoder: DOM SVG, black/white, medium error correction, four-module white margin. No URL/token goes to a QR service. Keep codes square, preserve margins, and do not cover modules with logos.
 
@@ -36,8 +38,8 @@ Visualizer surfaces allow multiple selections: Cabinets, Siding, Fascia, Gutters
 
 1. Open tablet mode; confirm event label, connection, and public QR.
 2. Capture name/phone with the visitor, or offer their phone through the public QR.
-3. Offer consultation scheduling now or their private project QR to finish later.
-4. Have them save access before clearing. Verify blank form and no previous private QR/photos; the kiosk also clears after its idle warning.
+3. Offer consultation scheduling now, or the public QR for visitors who prefer completing the flow on their own phone.
+4. After a tablet booking, have them scan their private project QR before staff clears the tablet with the header next-visitor control. Verify blank form and no previous private QR/photos; the kiosk also clears after its idle warning.
 5. Keep a staffed fallback for network failure. A preview/timeout is not proof of a saved lead/booking.
 
 Owner access uses the same email/password and saved session as the review portal. It persists across reloads, page closure and inactivity; explicit sign-out clears the shared session on this browser. Keep the separate operator key and any private access files outside Git/public output and visitor forms. Downloaded CSV/calendar files still need private handling.
