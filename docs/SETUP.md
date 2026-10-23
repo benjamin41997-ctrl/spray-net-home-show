@@ -4,7 +4,7 @@ The public GitHub Pages frontend and private Cloudflare Worker are separate depl
 
 ## Current workflow
 
-Visitors submit name/phone, with optional email/address, then book a consultation to unlock the visualizer. The project address is required at booking. Server availability checks and an authoritative D1 appointment confirm access; a lead/contact preference/redirect cannot unlock it. All photo/media/render endpoints check the booking.
+Visitors submit name/phone, with optional email/address, then book a consultation to unlock the visualizer. A valid email and project address are required at booking. Server availability checks and an authoritative D1 appointment confirm access; a lead/contact preference/redirect cannot unlock it. All photo/media/render endpoints check the booking.
 
 Consultations start **Monday, October 26, 2026** (BOOKING_START_DATE=2026-10-26), run **90 minutes**, **all seven days 8:00 am–7:00 pm Eastern**, with **30-minute travel gaps**. Latest visit start is **5:30 pm**. Actual outside appointments are staff blocks; Outlook placeholders named “BLOCK” are intentionally left bookable, per the user's schedule instructions.
 
@@ -25,7 +25,7 @@ The owner page uses the review portal's existing email/password account and save
 
 If a separate local staff-access file is provided, keep it private, outside Git, with its restricted local permissions. It must never be published or copied into the repository. The page itself can be public because the API requires authentication; its URL is not a substitute for a key.
 
-The app does not read/sync Outlook. Add actual outside commitments to staff blocks, while leaving the user's “BLOCK” placeholders bookable. Internal cancellation does not remove an imported Outlook event. Visitors see/download a one-hour visit; staff files reserve 120 minutes including travel. Import manually, check the duration, and update both calendars when a real appointment changes. No automatic invitations are sent in internal mode; the owner calendar prepares a confirmation email draft for manual sending. [Calendar instructions](CALENDAR-SETUP.md)
+The app does not read/sync Outlook. Add actual outside commitments to staff blocks, while leaving the user's “BLOCK” placeholders bookable. Internal cancellation does not remove an imported Outlook event. Visitors see a one-hour visit; only mobile offers the visitor calendar download. Staff files reserve 120 minutes including travel. Import manually, check the duration, and update both calendars when a real appointment changes. No automatic invitations are sent in internal mode; the owner calendar prepares a confirmation email draft for manual sending. [Calendar instructions](CALENDAR-SETUP.md), [pending automatic confirmation setup](CONFIRMATION-INTEGRATION.md)
 
 ## Backend configuration
 

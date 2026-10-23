@@ -23,7 +23,7 @@ function environment(extra = {}) {
 }
 function lead(env, extra = {}) {
   const person = { id: crypto.randomUUID(), first_name: 'Alex', last_name: 'Homeowner', phone: '(555) 123-4567',
-    email: '', address: '12 Example St', service: 'Exterior siding', ...extra };
+    email: 'alex@example.com', address: '12 Example St', service: 'Exterior siding', ...extra };
   // Insert a real trusted lead so SQLite enforces the module's foreign keys.
   env.DB.sqlite.prepare(`INSERT INTO leads
     (id,token_hash,lead_identity,phone_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
@@ -106,16 +106,22 @@ test('calendar pagination never follows an untrusted provider URL or treats a pa
   await assert.rejects(listConsultationSlots(env, { now, fetcher }), BookingError); assert.equal(calls, 1);
 });
 
-test('phone-only booking creates a genuine server event and requires a matching Graph GET before confirmation', async () => {
+test('booking with required email creates a genuine server event and requires a matching Graph GET before confirmation', async () => {
   const env = environment(), person = lead(env), fixture = graphFixture();
   const result = await book(env, person, fixture);
   assert.deepEqual(result, { status: 'confirmed', start, end: '2026-10-26T14:30:00.000Z', timeZone: 'America/New_York' });
   const event = [...fixture.events.values()][0];
-  assert.equal(event.attendees, undefined); assert.ok(event.body.content.includes(person.address));
+  assert.equal(event.attendees[0].emailAddress.address, person.email); assert.ok(event.body.content.includes(person.address));
   assert.equal(event.showAs, 'busy'); assert.equal(fixture.posts, 1); assert.equal(fixture.eventGets, 1);
   const row = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings').get();
   assert.equal(row.status, 'confirmed'); assert.equal(row.graph_event_id, event.id); assert.equal(row.transaction_id, event.transactionId);
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM booking_calendar_locks').get().n, 0);
+});
+
+test('Graph booking rejects a missing email before authorization, calendar reads or event creation',async()=>{
+  const env=environment(),person=lead(env,{email:''}),fixture=graphFixture();
+  for(const email of [undefined,'','   ','invalid'])await assert.rejects(book(env,person,fixture,{email}),error=>error.code==='INVALID_EMAIL');
+  assert.equal(fixture.seen.length,0);assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n,0);
 });
 
 test('retrying a confirmed request never creates a duplicate invitation or appointment', async () => {

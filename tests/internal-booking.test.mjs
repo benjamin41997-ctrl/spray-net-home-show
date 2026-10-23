@@ -22,7 +22,7 @@ function environment(extra = {}) {
   return {DB,BOOKING_PROVIDER:'internal',...extra};
 }
 function lead(env, extra = {}) {
-  const person={id:crypto.randomUUID(),first_name:'Alex',last_name:'Homeowner',phone:'5551234567',email:'',address:'12 Example Street',...extra};
+  const person={id:crypto.randomUUID(),first_name:'Alex',last_name:'Homeowner',phone:'5551234567',email:'alex@example.com',address:'12 Example Street',...extra};
   env.DB.sqlite.prepare(`INSERT INTO leads
     (id,token_hash,lead_identity,phone_normalized,event_id,first_name,last_name,email,phone,address,city,state,zip,service,timeline,notes,event_label,consent_at,consent_version,remaining_renders,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(person.id,'hash',person.id,'15551234567','show',person.first_name,
@@ -89,6 +89,17 @@ test('booking is authoritative in D1, needs a saved lead/address, and makes no e
     assert.equal((await verifyConsultation(env,row)).status,'confirmed');
   }finally{globalThis.fetch=previous;}
   await assert.rejects(bookConsultation(env,{lead:{...person,address:''},start,requestKey:'another-key'},{now}),error=>error.code==='INVALID_ADDRESS');
+});
+
+test('a phone-only lead stays saved but cannot book internally without a valid consultation email',async()=>{
+  const env=environment(),person=lead(env,{email:''});
+  for(const email of [undefined,'','   ','invalid']) {
+    await assert.rejects(book(env,person,{email}),error=>error.code==='INVALID_EMAIL');
+    assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n,0);
+    assert.equal(env.DB.sqlite.prepare('SELECT email FROM leads WHERE id=?').get(person.id).email,'');
+  }
+  assert.equal((await book(env,person,{email:'alex@example.com'})).status,'confirmed');
+  assert.equal(env.DB.sqlite.prepare('SELECT email FROM leads WHERE id=?').get(person.id).email,'alex@example.com');
 });
 
 test('identical booking retries reuse the same row; changed address parts, slot or key never silently edit it',async()=>{

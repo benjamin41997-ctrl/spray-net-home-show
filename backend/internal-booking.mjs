@@ -85,7 +85,7 @@ export async function bookConsultation(env, params, options = {}) {
   const address = typeof lead.address === 'string' ? lead.address.trim() : '';
   if (!address || address.length > 180) stop(400, 'INVALID_ADDRESS', 'Enter the project street address before booking your consultation.');
   const email = String(params.email ?? lead.email ?? '').trim();
-  if (email.length > 254 || (email && !EMAIL.test(email))) stop(400, 'INVALID_EMAIL', 'Check your optional email address.');
+  if (!email || email.length > 254 || !EMAIL.test(email)) stop(400, 'INVALID_EMAIL', 'Enter a valid email address to schedule your consultation.');
   function addressPart(value, max) {
     if (value == null) return '';
     if (typeof value !== 'string' || value.trim().length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))

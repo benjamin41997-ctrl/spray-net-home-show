@@ -307,7 +307,7 @@ export async function bookConsultation(env, params, options = {}) {
   const email = String(params.email ?? lead.email ?? '').trim();
   const address = typeof lead.address === 'string' ? lead.address.trim() : '';
   if (!address || address.length > 180) stop(400, 'INVALID_ADDRESS', 'Enter the project street address before booking your consultation.');
-  if (email.length > 254 || (email && !EMAIL.test(email))) stop(400, 'INVALID_EMAIL', 'Check the email address for your appointment invitation.');
+  if (!email || email.length > 254 || !EMAIL.test(email)) stop(400, 'INVALID_EMAIL', 'Enter a valid email address to schedule your consultation.');
   if ((params.end && params.end !== endAt) || (params.timeZone && params.timeZone !== TIME_ZONE))
     stop(400, 'INVALID_SLOT', 'Choose a consultation time from the available options.');
   const identity = await identities(env), owner = await acquire(env, identity.calendarKey);

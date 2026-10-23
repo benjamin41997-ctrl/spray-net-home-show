@@ -524,7 +524,7 @@ async function route(request, env, config, context) {
         || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(address))
         fail(400, 'INVALID_ADDRESS', 'Enter the project street address before scheduling your consultation.');
       const email = body.email === undefined ? lead.email : text(body.email, 'email', 254, false);
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address or leave it blank.');
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'INVALID_EMAIL', 'Enter a valid email address to schedule your consultation.');
       const addressChanged = address.trim() !== lead.address.trim();
       const city = text(body.city === undefined ? (addressChanged ? '' : lead.city) : body.city, 'city', 100, false);
       const state = text(body.state === undefined ? (addressChanged ? '' : lead.state) : body.state, 'state', 2, false).toUpperCase();

@@ -12,7 +12,7 @@ Mobile is the default. See [deployment status](DEPLOYMENT.md) before assuming cu
 
 ## Capture, then schedule
 
-Both initially require only **name and phone**. Email/address are optional; a project address is required for consultation booking. Saving a lead offers scheduling to unlock photos and visualizer. Only the backend-confirmed internal appointment unlocks; a contact preference/copied link does not.
+Both initially require only **name and phone**. Email/address are optional for lead capture; **both a valid email and project address are required for consultation booking**, in the form and server. Saving a lead offers scheduling to unlock photos and visualizer. Only the backend-confirmed internal appointment unlocks; a contact preference/copied link does not.
 
 Appointments are offered **October 26–November 8, 2026**, inclusive, every day in the 8:00 am–7:00 pm Eastern work window. Visitors see a **one-hour consultation** in the picker, confirmation and downloaded calendar. Internal reservations retain **90 minutes plus a 30-minute travel gap**, latest start **5:30 pm**. Staff blocks/app appointments reduce choices. This calendar does not read Outlook, so staff enter outside commitments as blocks. [Calendar instructions](CALENDAR-SETUP.md)
 
@@ -34,7 +34,7 @@ QR generation uses the local MIT encoder: DOM SVG, black/white, medium error cor
 
 On mobile, the thank-you and home-show rewards invitation lead to a large scheduling button, with the visualizer benefit below it. The project-link section is hidden. The browser remembers only the private lead ID/token and configured API origin in local storage, so returning in another tab works without re-entering contact details. Contact data and pending request payloads remain tab-scoped. Kiosks never read/write this persistent mobile access. Clearing browser data removes saved access; storage does not transfer access between devices.
 
-No automatic project-link email/text or appointment email is sent. The owner calendar can prepare a confirmation email in the owner's email app for review and sending from ben.hessler@spray-net.com. Automatic sending requires Microsoft mail authorization, which is not connected. A confirmed visitor can download a **one-hour** .ics appointment; staff calendar exports preserve the internal reservation and travel gap.
+No automatic project-link email/text or appointment email is sent. The owner calendar can prepare a confirmation email in the owner's email app for review and sending from ben.hessler@spray-net.com. Automatic sending requires an authorized sending connection; the proposed HighLevel workflow needs account-admin setup because the current workflow screen is view-only. See [confirmation integration](CONFIRMATION-INTEGRATION.md). Only the mobile visitor page offers a **one-hour** .ics appointment download; the tablet does not show/create this download. Staff calendar exports preserve the internal reservation and travel gap.
 
 Visualizer surfaces allow multiple selections: Cabinets, Siding, Fascia, Gutters and downspouts, Windows, Front door, Garage door and frame. The selected color applies to all chosen visible surfaces in a single request, using one render credit. Window glass is preserved. Existing single-surface pending requests remain retryable.
 
@@ -43,12 +43,12 @@ Visualizer surfaces allow multiple selections: Cabinets, Siding, Fascia, Gutters
 1. Open tablet mode; confirm event label, connection, and public QR.
 2. Capture name/phone with the visitor, or offer their phone through the public QR.
 3. Offer consultation scheduling now, or the public QR for visitors who prefer completing the flow on their own phone.
-4. After a tablet booking, have them scan their private project QR before staff clears the tablet with the header next-visitor control. Verify blank form and no previous private QR/photos; the kiosk also clears after its idle warning.
+4. After a tablet booking, have them scan their private project QR before staff clears the tablet with the header next-visitor control. Verify the blank form and no previous private QR/photos. The tablet does not reset automatically.
 5. Keep a staffed fallback for network failure. A preview/timeout is not proof of a saved lead/booking.
 
 Owner access uses the same email/password and saved session as the review portal. It persists across reloads, page closure and inactivity; explicit sign-out clears the shared session on this browser. Keep the separate operator key and any private access files outside Git/public output and visitor forms. Downloaded CSV/calendar files still need private handling.
 
-Next-visitor/Done actions are bound only in tablet mode and are disabled/hidden on mobile. Manual and idle resets clear the tablet session, remove private URL fragments, explicitly retain ?mode=tablet, and restore the tablet entry layout. Tablet and mobile tab storage use separate keys, even when switching modes in the same browser tab. Resetting the tablet does not delete a saved lead or erase a phone's saved project.
+Next-visitor/Done actions are bound only in tablet mode and are disabled/hidden on mobile. **Neither version has an inactivity reset.** Staff must manually reset the tablet after each visitor. Manual reset clears the tablet session, removes private URL fragments, explicitly retains ?mode=tablet, and restores the tablet entry layout. Tablet and mobile tab storage use separate keys, even when switching modes in the same browser tab. Resetting the tablet does not delete a saved lead or erase a phone's saved project.
 
 ## Verification
 

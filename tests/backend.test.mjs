@@ -543,14 +543,17 @@ test('new-device authenticated session reconciles a pending Outlook transaction 
   });
 });
 
-test('booking route requires a project address after compact lead capture and validates optional booking email before Graph', async () => {
+test('booking requires address and email after phone-only lead capture, rejecting missing email before Graph', async () => {
   const env = environment(), person = await lead(env, { name: 'Compact Lead', phone: '7045550203', contactConsent: true });
   for (const body of [{}, { address: '' }, { address: 'x'.repeat(181) }]) {
     const response = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', body, token: person.token });
     assert.equal(response.status, 400); assert.equal((await response.json()).error.code, 'INVALID_ADDRESS');
   }
-  const email = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', body: { address: '12 Test Street', email: 'invalid' }, token: person.token });
-  assert.equal(email.status, 400); assert.equal((await email.json()).error.code, 'INVALID_EMAIL');
+  for (const value of [undefined,'','   ','invalid']) {
+    const email = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', body: { address: '12 Test Street', email: value }, token: person.token });
+    assert.equal(email.status, 400); assert.equal((await email.json()).error.code, 'INVALID_EMAIL');
+  }
+  assert.equal(env.DB.sqlite.prepare('SELECT email FROM leads WHERE id=?').get(person.id).email,'');
   assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n, 0);
 });
 
@@ -562,19 +565,19 @@ test('authenticated phone-only lead chooses a real adapter slot and unlocks only
   const choices = await slots.json(); assert.equal(choices.bookingAvailable, true); assert.ok(choices.slots.length > 0);
   assert.equal(choices.durationMinutes, 90); assert.equal(choices.bufferMinutes, 30);
   const options = { method: 'POST', token: person.token, key: crypto.randomUUID(), body: {
-    start: choices.slots[0].start, address: '  44 Test Project Lane  ', city: 'Matthews', state: 'nc', zip: '28105' } };
+    start: choices.slots[0].start, address: '  44 Test Project Lane  ', email:'visitor@example.com', city: 'Matthews', state: 'nc', zip: '28105' } };
   const booked = await request(env, `${base}/book`, options); assert.equal(booked.status, 200);
   const result = await booked.json(); assert.equal(result.booking.status, 'confirmed'); assert.equal(result.visualizerUnlocked, true);
   assert.equal(Date.parse(result.booking.end) - Date.parse(result.booking.start), 90 * 60000); assert.equal(graphCreates, beforeCreates + 1);
   const repeated = await request(env, `${base}/book`, options); assert.equal(repeated.status, 200);
   assert.deepEqual(await repeated.json(), result); assert.equal(graphCreates, beforeCreates + 1);
   const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id);
-  assert.equal(row.address, '44 Test Project Lane'); assert.equal(row.email, ''); assert.equal(row.consultation_preference, 'schedule_now');
+  assert.equal(row.address, '44 Test Project Lane'); assert.equal(row.email, 'visitor@example.com'); assert.equal(row.consultation_preference, 'schedule_now');
   assert.equal(row.city, 'Matthews'); assert.equal(row.state, 'NC'); assert.equal(row.zip, '28105');
   assert.equal(row.remaining_renders, 3); assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n, 0);
   const stored = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
-  assert.equal(stored.status, 'confirmed'); assert.equal(stored.attendee_email, '');
-  const event = calendarEvents.get(stored.graph_event_id); assert.equal(event.attendees, undefined);
+  assert.equal(stored.status, 'confirmed'); assert.equal(stored.attendee_email, 'visitor@example.com');
+  const event = calendarEvents.get(stored.graph_event_id); assert.equal(event.attendees[0].emailAddress.address, 'visitor@example.com');
   assert.match(event.body.content, /44 Test Project Lane/);
   const session = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
   assert.equal(session.visualizerUnlocked, true); assert.equal(session.lead.address, '44 Test Project Lane');
@@ -595,7 +598,7 @@ test('structured address selections persist from initial capture and booking upd
     const initial = await (await request(env, `/api/leads/${person.id}/session`, { token: person.token })).json();
     assert.equal(initial.lead.city, 'Charlotte'); assert.equal(initial.lead.state, 'NC'); assert.equal(initial.lead.zip, '28277');
     const slots = await (await request(env, `/api/leads/${person.id}/consultation/slots`, { token: person.token })).json();
-    const options = { method: 'POST', token: person.token, key: crypto.randomUUID(), body: { start: slots.slots[0].start, ...item.update } };
+    const options = { method: 'POST', token: person.token, key: crypto.randomUUID(), body: { start: slots.slots[0].start, email:'visitor@example.com', ...item.update } };
     const response = await request(env, `/api/leads/${person.id}/consultation/book`, options);
     assert.equal(response.status, 200, item.label); assert.equal((await response.json()).visualizerUnlocked, true);
     const row = env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id);
@@ -617,7 +620,7 @@ test('booking rejects invalid optional city state ZIP before reserving or changi
   const initial = env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id);
   for (const parts of [{ city: 'a'.repeat(101) }, { city: [] }, { state: 'North Carolina' }, { state: '1C' }, { zip: 'bad' }, { zip: '123456' }]) {
     const response = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', token: person.token,
-      key: crypto.randomUUID(), body: { address: '12 New Street', start: '2026-11-01T15:00:00.000Z', ...parts } });
+      key: crypto.randomUUID(), body: { address: '12 New Street', email:'visitor@example.com', start: '2026-11-01T15:00:00.000Z', ...parts } });
     assert.equal(response.status, 400);
     assert.deepEqual(env.DB.sqlite.prepare('SELECT address,city,state,zip FROM leads WHERE id=?').get(person.id), initial);
     assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n, 0);
@@ -653,7 +656,7 @@ test('internal scheduler dispatch confirms in D1 without Microsoft credentials a
     assert.equal(remaining.slots.some(slot => slot.start === blockedSlot.start), false); assert.ok(remaining.slots.length > 0);
     const chosen = remaining.slots[0];
     const booked = await request(env, `/api/leads/${person.id}/consultation/book`, { method: 'POST', token: person.token,
-      key: crypto.randomUUID(), body: { start: chosen.start, address: '17 Internal Project Road' } });
+      key: crypto.randomUUID(), body: { start: chosen.start, email:'visitor@example.com', address: '17 Internal Project Road' } });
     assert.equal(booked.status, 200); const booking = await booked.json();
     assert.equal(booking.booking.status, 'confirmed'); assert.equal(booking.visualizerUnlocked, true);
     const stored = env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
@@ -662,7 +665,7 @@ test('internal scheduler dispatch confirms in D1 without Microsoft credentials a
     assert.equal(listedResponse.headers.get('Cache-Control'), 'no-store'); const listed = await listedResponse.json();
     const appointment = listed.bookings.find(item => item.leadId === person.id);
     assert.equal(appointment.name, 'Internal Visitor'); assert.equal(appointment.phone, '7045550301');
-    assert.equal(appointment.email, ''); assert.equal(appointment.address, '17 Internal Project Road');
+    assert.equal(appointment.email, 'visitor@example.com'); assert.equal(appointment.address, '17 Internal Project Road');
     assert.equal(appointment.status, 'confirmed'); assert.equal(appointment.start, chosen.start); assert.equal(appointment.timeZone, 'America/New_York');
     assert.equal(listed.blocks.some(item => item.id === block.id), true);
     for (const secret of [person.token, env.ADMIN_TOKEN, env.RATE_LIMIT_SALT]) assert.equal(JSON.stringify(listed).includes(secret), false);

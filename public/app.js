@@ -19,7 +19,7 @@ if (location.hash.startsWith('#studio=')) history.replaceState(null, '', locatio
 const state = { lead: null, session: null, ready: false, renderAvailable: false, busy: false, remaining: 3,
   photos: [], selectedPhoto: 0, color: 0, urls: new Set(), shownResults: new Set(), slots: [], day: '', selectedSlot: '',
   pendingLead: null, pendingBooking: null, pendingRender: null, completedRender: null, savedMedia: null, loadedMediaFor: null, mediaLoadAccess: null };
-let apiBase = '', lastActivity = Date.now();
+let apiBase = '';
 const lookupAddress = (query,options) => requestAddressSuggestions(apiBase,query,options);
 const leadAddress = attachAddressAutocomplete($('#lead-address'),{lookup:lookupAddress});
 const bookingAddress = attachAddressAutocomplete($('#booking-address'),{lookup:lookupAddress});
@@ -71,7 +71,7 @@ function showSaved({ focus = false } = {}) {
     const visit=visitorAppointment(state.session.booking);
     $('#booking-panel').hidden = true; $('#confirmed-time').textContent = formatAppointment(visit.start, visit.end);
     $('#confirmed-address').textContent = state.session.lead?.address || '';
-    try { const text = createCalendarFile({id:state.lead.id,...visit,address:state.session.lead?.address || ''});
+    if (mode === 'mobile') try { const text = createCalendarFile({id:state.lead.id,...visit,address:state.session.lead?.address || ''});
       const url = objectUrl(new Blob([text],{type:'text/calendar;charset=utf-8'})); calendar.href = url; calendar.dataset.objectUrl = url; calendar.hidden = false;
     } catch {}
   }
@@ -261,23 +261,15 @@ function clearTabletForm() {
   surfaceOptions();
   $('#private-link').value = ''; $('#private-link').hidden = true; $('#retry-image').hidden = true;
   $('#download-appointment').removeAttribute('href'); delete $('#download-appointment').dataset.objectUrl; $('#download-appointment').hidden = true;
-  $('#lead-panel').hidden = false; $('#page-intro').hidden = true; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true; $('#idle-notice').hidden = true;
+  $('#lead-panel').hidden = false; $('#page-intro').hidden = true; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true;
   $('.private-access').hidden = true; $('#next-visitor').hidden = true;
-  $('#submit-lead').disabled = !state.ready; message(); lastActivity = Date.now(); $('#lead-name').focus({preventScroll:true}); window.scrollTo({top:0,behavior:'instant'});
+  $('#submit-lead').disabled = !state.ready; message(); $('#lead-name').focus({preventScroll:true}); window.scrollTo({top:0,behavior:'instant'});
 }
 $('#header-reset').hidden = mode !== 'tablet';
 for (const id of ['#header-reset','#next-visitor']) {
   $(id).disabled = mode !== 'tablet';
   if (mode === 'tablet') $(id).addEventListener('click', resetVisitor);
 }
-for (const type of ['pointerdown','keydown','input']) document.addEventListener(type, () => { lastActivity = Date.now(); $('#idle-notice').hidden = true; }, {passive:true});
-if (mode === 'tablet') setInterval(() => {
-  if (state.busy) { lastActivity = Date.now(); return; }
-  const hasData = state.lead || [...form.querySelectorAll('input:not(.honeypot)')].some(e => e.value);
-  if (!hasData) return;
-  const idle = Date.now() - lastActivity; $('#idle-notice').hidden = idle < 170000;
-  if (idle >= 180000) { $('#privacy-dialog').close(); resetVisitor(); }
-},1000);
 function studioPhotos() {
   const area = $('#studio-photos'); area.replaceChildren(); if (state.selectedPhoto >= state.photos.length) state.selectedPhoto = 0;
   state.photos.forEach((photo,i) => {

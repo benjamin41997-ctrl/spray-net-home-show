@@ -179,7 +179,6 @@ fieldset{min-width:0;margin:0;padding:0;border:0}
 
 footer{width:min(550px,calc(100% - 48px));margin:0 auto 28px;display:flex;align-items:center;justify-content:space-between;gap:20px;color:#7f8c96;font-size:9px;line-height:1.5}
 footer .text-button{color:#6b7f8e;font-size:9px}
-.idle-notice{position:fixed;z-index:50;left:50%;bottom:22px;transform:translateX(-50%);width:min(600px,calc(100% - 32px));padding:16px 20px;border-left:4px solid var(--orange);border-radius:8px;background:var(--navy-deep);box-shadow:0 8px 32px #002d5033;color:#fff;font-size:13px;line-height:1.6}
 dialog{position:fixed;width:min(540px,calc(100% - 32px));max-height:85dvh;padding:34px 30px;border:0;border-radius:13px;color:var(--ink);background:#fff;box-shadow:0 24px 100px #001e3c50;overflow:auto}
 dialog::backdrop{background:#001a2ab8;backdrop-filter:blur(3px)}
 dialog .eyebrow{font-size:8px;margin:0 25px 14px 0}

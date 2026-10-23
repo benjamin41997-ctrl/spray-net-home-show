@@ -28,7 +28,7 @@ This scheduler does **not** read Outlook, send invitations, or synchronize chang
 
 Visitors see/download a one-hour consultation. Internal reservations remain 90 minutes, and staff exports add 30 minutes for travel. Import manually and inspect the resulting duration. Downloading does not insert it into Outlook or notify anyone. Cancelling here does not remove the imported Outlook event, and editing Outlook does not change this app. Update both when needed and avoid repeated imports.
 
-Phone browsers remember private project access without a separate link-saving section. The optional email remains a contact field. For a confirmed appointment with an email address, the owner calendar offers **Prepare confirmation email**, opening a one-hour confirmation draft. Choose ben.hessler@spray-net.com as sender, review and send it. Automatic sending requires an authorized Microsoft app with delegated Mail.Send (or an approved organizational mail service); no such authorization is connected. [Microsoft sending permissions](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
+Phone browsers remember private project access without a separate link-saving section. Email is optional when capturing a lead and required before scheduling a consultation. Only mobile shows **Add to my calendar**; tablets are reset manually by staff and have no inactivity reset. For a confirmed appointment with an email address, the owner calendar offers **Prepare confirmation email**, opening a one-hour confirmation draft. Choose ben.hessler@spray-net.com as sender, review and send it. Automatic sending needs a connected, authorized sender. The proposed [HighLevel confirmation workflow](CONFIRMATION-INTEGRATION.md) needs corporate/admin setup because the account currently shows view-only workflows. Direct Microsoft sending would require Mail.Send authorization, which is not connected. [Microsoft sending permissions](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
 
 ## Configuration and protected routes
 
@@ -50,7 +50,7 @@ The API is authoritative. Staff requests use trusted configured apiBase:
 | Route | Access and purpose |
 | --- | --- |
 | GET /api/leads/:id/consultation/slots | Lead bearer; available choices without other customers' details. |
-| POST /api/leads/:id/consultation/book | Lead bearer, chosen start, required address, optional email, stable request key; confirms in D1 after checking conflicts. |
+| POST /api/leads/:id/consultation/book | Lead bearer, chosen start, required address and valid email, stable request key; confirms in D1 after checking conflicts. |
 | GET /api/admin/bookings | Admin bearer; upcoming consultations and blocks. |
 | POST /api/admin/blocks | Admin bearer; UTC start/end and optional note. |
 | DELETE /api/admin/blocks/:id | Admin bearer; removes a block. |
