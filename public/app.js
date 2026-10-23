@@ -1,4 +1,4 @@
-import { COLORS, MAX_PHOTOS, validatePhoto, safeApiBase, privateMediaUrl, contactValues } from './lib.js';
+import { COLORS, MAX_PHOTOS, validatePhoto, safeApiBase, privateMediaUrl } from './lib.js';
 import { createStudioLink, parseStudioAccess, sameStudioAccess } from './access.js';
 import { renderQr } from './qr.js';
 import { createCalendarFile } from './calendar.js';
@@ -132,7 +132,7 @@ async function connect() {
     state.remaining = health?.freeRenders ?? config.freeRenders ?? 3;
     $$('[data-free-renders]').forEach(e => { e.textContent = String(state.remaining); });
     $('#booking-length').textContent = `${health?.consultationMinutes || 90}-minute consultation · ${health?.travelBufferMinutes ?? 30}-minute travel buffer`;
-    $('#connection-status').textContent = state.ready ? 'Connected securely · your local South Charlotte team' : 'Live submissions are unavailable. Please speak with our booth team.';
+    $('#connection-status').textContent = state.ready ? 'Connected securely · South Charlotte' : 'Live submissions are unavailable. Please speak with our booth team.';
     $('#connection-status').classList.toggle('live', state.ready);
     if (state.ready) try { await restoreSession(); } catch {
       if (state.lead) { $('#lead-panel').hidden = true; $('#page-intro').hidden = true; }
@@ -260,22 +260,6 @@ if (mode === 'tablet') setInterval(() => {
   const idle = Date.now() - lastActivity; $('#idle-notice').hidden = idle < 170000;
   if (idle >= 180000) { $('#privacy-dialog').close(); resetVisitor(); }
 },1000);
-if ('contacts' in navigator && 'ContactsManager' in window && mode === 'mobile') {
-  $('#share-contact').hidden = false; $('#share-contact').addEventListener('click', async () => {
-    try {
-      const available = await navigator.contacts.getProperties();
-      const contacts = await navigator.contacts.select(['name','email','tel','address'].filter(p => available.includes(p)), {multiple:false});
-      if (!contacts.length) return; const values = contactValues(contacts[0]); values.name = [values.firstName,values.lastName].filter(Boolean).join(' ');
-      const street = values.address;
-      const region = String(values.state || '').trim().toUpperCase();
-      values.state = ({'NORTH CAROLINA':'NC','SOUTH CAROLINA':'SC'}[region] || (/^[A-Z]{2}$/.test(region) ? region : ''));
-      values.address = [values.address,values.city,values.state,values.zip].filter(Boolean).join(', ');
-      for (const key of ['name','phone','address','email']) if (values[key]) form.elements[key].value = values[key];
-      leadAddress.adopt({display:values.address,street,city:values.city || '',state:values.state || '',zip:values.zip || ''});
-      message('Contact details added. Please check the project address before submitting.');
-    } catch (e) { if (e.name !== 'AbortError') message('Contact sharing is unavailable here. Use your keyboard’s autofill or enter your details.'); }
-  });
-}
 function studioPhotos() {
   const area = $('#studio-photos'); area.replaceChildren(); if (state.selectedPhoto >= state.photos.length) state.selectedPhoto = 0;
   state.photos.forEach((photo,i) => {

@@ -25,24 +25,23 @@
       <h1>A new look.<br>The home<br><em>you love.</em></h1>
       <p class="booth-description">Cabinets, exteriors, and the possibilities in between. Tell us a little about your project.</p>
       <div class="booth-photo"><img src="./assets/kitchen-after.webp" alt="A navy cabinet transformation from the Spray-Net portfolio" width="1200" height="800"><span>Custom Chemistry. Smarter Painting.</span></div>
-      <div class="public-qr-card"><div id="public-mobile-qr" class="qr public-qr"></div><div><strong>Prefer your phone?</strong><p>Scan to fill this out on your own device.</p><a id="mobile-version-link" href="?mode=mobile">Open the mobile version ↗</a></div></div>
     </aside>
+    <div class="capture-column">
     <article class="capture-card" aria-label="Your project">
-      <div class="mobile-heading" id="page-intro"><p class="eyebrow">A QUICK HELLO. A NEW POSSIBILITY.</p><h1>Let’s talk about<br><em>your home.</em></h1><p>Leave your details and our South Charlotte team will be in touch.</p></div>
+      <div class="mobile-heading" id="page-intro"><h1>Let’s talk about<br><em>your home.</em></h1></div>
       <p id="connection-status" class="connection-status" role="status">Checking the form connection…</p>
       <p id="form-alert" class="form-alert" role="alert" hidden></p>
       <section id="lead-panel" aria-labelledby="form-title">
-        <div class="form-title-row"><h2 id="form-title">Nice to meet you.</h2></div>
-        <button id="share-contact" class="saved-contact" type="button" hidden>Use my saved contact details</button>
+        <h2 id="form-title" class="sr-only">Your contact details</h2>
         <form id="lead-form" autocomplete="on" novalidate>
           <div class="lead-fields">
             <div class="field"><label for="lead-name">Name <span class="required-note">Required</span></label><input id="lead-name" name="name" type="text" autocomplete="section-lead name" autocapitalize="words" placeholder="Your name" maxlength="160" required></div>
-            <div class="field"><label for="lead-phone">Phone <span class="required-note">Required</span></label><input id="lead-phone" name="phone" type="tel" inputmode="tel" autocomplete="section-lead tel" placeholder="Your phone number" maxlength="30" required></div>
+            <div class="field"><label for="lead-phone">Phone <span class="required-note">Required</span></label><input id="lead-phone" name="phone" type="tel" inputmode="tel" autocomplete="section-lead tel" placeholder="Your phone" maxlength="30" required></div>
             <div class="field"><label for="lead-address">Project address</label><input id="lead-address" name="address" type="text" autocomplete="section-lead street-address" autocapitalize="words" spellcheck="false" placeholder="Start typing your street address" maxlength="180"></div>
             <div class="field"><label for="lead-email">Email</label><input id="lead-email" name="email" type="email" inputmode="email" autocomplete="section-lead email" autocapitalize="none" spellcheck="false" placeholder="you@example.com" maxlength="254"></div>
           </div>
           <input class="honeypot" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-          <p class="consent-note">By submitting, you’re asking Spray-Net South Charlotte to contact you about your project. <button class="text-button" id="privacy-button" type="button">Privacy & photo use</button></p>
+          <p class="consent-note">By submitting, you ask Spray-Net South Charlotte to contact you about your project. <button class="text-button" id="privacy-button" type="button">Privacy & photo use</button></p>
           <button class="button full" id="submit-lead" type="submit">Submit <span aria-hidden="true">→</span></button>
         </form>
       </section>
@@ -75,6 +74,8 @@
         <fieldset class="colors-fieldset"><legend>Choose a color direction</legend><div id="color-options" class="color-options"></div></fieldset><div class="field"><label for="surface">What should change?</label><select id="surface"><option>Cabinets</option><option>Exterior siding</option><option>Brick</option><option>Stucco</option><option>Front door</option><option>Garage door</option><option>Window frames</option></select></div><p class="visualizer-note">AI previews help explore an idea. Confirm final colors with physical samples.</p><button id="create-render" class="button full" type="button">Create my visualization <span aria-hidden="true">✦</span></button><p id="render-status" class="studio-status" role="status"></p><button id="retry-image" class="button secondary full" type="button" hidden>Retrieve my completed image</button><div id="render-results" class="render-results" aria-live="polite"></div>
       </section>
     </article>
+    <div class="public-qr-card tablet-only"><div id="public-mobile-qr" class="qr public-qr"></div><div><strong>Prefer your phone?</strong><p>Scan to fill this out on your own device.</p><a id="mobile-version-link" href="?mode=mobile">Open the mobile version ↗</a></div></div>
+    </div>
   </main>
   <footer><span>Spray-Net South Charlotte</span><button id="footer-privacy" class="text-button" type="button">Privacy & photo use</button></footer>
   <div id="idle-notice" class="idle-notice" role="status" hidden>Clearing this tablet soon for the next visitor. Tap anywhere to keep going.</div>
