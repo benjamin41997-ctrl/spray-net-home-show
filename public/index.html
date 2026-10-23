@@ -22,9 +22,9 @@
   <main class="page-layout">
     <aside class="booth-intro tablet-only" aria-label="Welcome to Spray-Net">
       <p class="eyebrow"><span></span> MEET YOUR LOCAL TEAM</p>
-      <h1>A new look.<br>The home<br><em>you love.</em></h1>
+      <h1>A new look.<br>The home <em>you love.</em></h1>
       <p class="booth-description">Cabinets, exteriors, and the possibilities in between. Tell us a little about your project.</p>
-      <div class="booth-photo"><img src="./assets/kitchen-after.webp" alt="A navy cabinet transformation from the Spray-Net portfolio" width="1200" height="800"><span>Custom Chemistry. Smarter Painting.</span></div>
+      <div class="public-qr-card"><div id="public-mobile-qr" class="qr public-qr"></div><div><strong>Prefer your phone?</strong><p>Scan to fill this out on your own device.</p></div></div>
     </aside>
     <div class="capture-column">
     <article class="capture-card" aria-label="Your project">
@@ -74,8 +74,12 @@
         <fieldset class="colors-fieldset"><legend>Choose a color direction</legend><div id="color-options" class="color-options"></div></fieldset><div class="field"><label for="surface">What should change?</label><select id="surface"><option>Cabinets</option><option>Exterior siding</option><option>Brick</option><option>Stucco</option><option>Front door</option><option>Garage door</option><option>Window frames</option></select></div><p class="visualizer-note">AI previews help explore an idea. Confirm final colors with physical samples.</p><button id="create-render" class="button full" type="button">Create my visualization <span aria-hidden="true">✦</span></button><p id="render-status" class="studio-status" role="status"></p><button id="retry-image" class="button secondary full" type="button" hidden>Retrieve my completed image</button><div id="render-results" class="render-results" aria-live="polite"></div>
       </section>
     </article>
-    <div class="public-qr-card tablet-only"><div id="public-mobile-qr" class="qr public-qr"></div><div><strong>Prefer your phone?</strong><p>Scan to fill this out on your own device.</p><a id="mobile-version-link" href="?mode=mobile">Open the mobile version ↗</a></div></div>
     </div>
+    <section class="booth-gallery tablet-only" aria-label="Finished projects from the Spray-Net portfolio">
+      <figure class="booth-result"><img src="./assets/kitchen-after.webp" alt="Finished kitchen cabinets in Hale Navy from the Spray-Net portfolio" width="1265" height="961" loading="lazy" decoding="async"><figcaption><strong>Cabinets</strong><span>AFTER</span></figcaption></figure>
+      <figure class="booth-result"><img src="./assets/exterior-after.webp" alt="Finished white brick and stucco exterior with dark accents from the Spray-Net portfolio" width="1800" height="1350" loading="lazy" decoding="async"><figcaption><strong>Brick & stucco</strong><span>AFTER</span></figcaption></figure>
+      <figure class="booth-result"><img src="./assets/siding-after.webp" alt="Finished blue engineered-wood siding with white trim from the Spray-Net portfolio" width="1800" height="1350" loading="lazy" decoding="async"><figcaption><strong>Siding</strong><span>AFTER</span></figcaption></figure>
+    </section>
   </main>
   <footer><span>Spray-Net South Charlotte</span><button id="footer-privacy" class="text-button" type="button">Privacy & photo use</button></footer>
   <div id="idle-notice" class="idle-notice" role="status" hidden>Clearing this tablet soon for the next visitor. Tap anywhere to keep going.</div>

@@ -7,6 +7,7 @@ The page reuses assets from the user's existing `spray-net-portfolio` project. N
 | `public/assets/exterior-before.webp` | Optimized `white-brick-stucco` before image from the existing portfolio. |
 | `public/assets/exterior-after.webp` | Matching optimized `white-brick-stucco` after image from the existing portfolio. |
 | `public/assets/kitchen-after.webp` | Optimized `hale-navy-kitchen` after image from the existing portfolio. |
+| `public/assets/siding-after.webp` | Optimized `blue-engineered-wood` after image from the existing portfolio; displayed with the cabinet and masonry after images in the tablet's bottom row. |
 | `public/assets/logo.png` | Existing Spray-Net logo, copied unchanged. |
 | `public/assets/favicon.png` | Existing portfolio favicon. |
 | `public/assets/Lato-Regular.ttf` | Existing portfolio Lato font file. |

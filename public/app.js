@@ -45,7 +45,7 @@ async function request(path, { method = 'GET', body, token, headers = {}, timeou
 function publicMobileUrl() { const u = new URL(location.pathname, location.origin); u.searchParams.set('mode', 'mobile'); return u.href; }
 $('.brand').href = `${location.pathname}?mode=${mode}`;
 function privateLink() { const u = new URL(createStudioLink(location.href, state.lead)); u.searchParams.set('mode', 'mobile'); return u.href; }
-try { const mobile = publicMobileUrl(); $('#mobile-version-link').href = mobile; if (mode === 'tablet') renderQr($('#public-mobile-qr'), mobile, { label: 'Scan to open our mobile lead form' }); } catch {}
+try { if (mode === 'tablet') renderQr($('#public-mobile-qr'), publicMobileUrl(), { label: 'Scan to open our mobile lead form' }); } catch {}
 function updateRenderAvailability() {
   $('#remaining-renders').textContent = String(state.remaining);
   $('#create-render').disabled = state.busy || !unlocked() || !state.renderAvailable || (state.remaining <= 0 && !state.pendingRender);
