@@ -7,6 +7,48 @@ export class OwnerError extends Error {
 }
 const fail = (status,code,message) => {throw new OwnerError(status,code,message);};
 
+async function cleanDeletedMedia(env,job) {
+  try {
+    // Never clean objects for an active lead, even if a damaged queue row exists.
+    if(await env.DB.prepare('SELECT id FROM leads WHERE id=?').bind(job.lead_id).first())return false;
+    const keys=JSON.parse(job.object_keys);
+    if(!Array.isArray(keys) || keys.length>10000 || !UUID.test(job.lead_id) || keys.some(key=>typeof key!=='string'
+      || !(key.startsWith(`photos/${job.lead_id}/`) || key.startsWith(`renders/${job.lead_id}/`))))return false;
+    for(let index=0;index<keys.length;index+=16)await Promise.all(keys.slice(index,index+16).map(key=>env.PHOTOS.delete(key)));
+    await env.DB.prepare('DELETE FROM lead_media_cleanup WHERE lead_id=?').bind(job.lead_id).run();return true;
+  } catch {return false;}
+}
+export async function retryDeletedMedia(env) {
+  const jobs=await env.DB.prepare('SELECT lead_id,object_keys FROM lead_media_cleanup ORDER BY requested_at LIMIT 10').all();
+  for(const job of jobs.results)await cleanDeletedMedia(env,job);
+}
+
+export async function deleteOwnerLead(env,leadId,body) {
+  if(!UUID.test(leadId))fail(400,'INVALID_LEAD','Choose a valid lead.');
+  leadId=leadId.toLowerCase();
+  if(body?.confirmation!=='DELETE')fail(400,'DELETE_CONFIRMATION_REQUIRED','Confirm deletion of this lead.');
+  // A live paid render or unresolved booking must finish before its lead goes.
+  // The same conditions are checked inside the atomic capture-and-delete batch.
+  const guard=`NOT EXISTS(SELECT 1 FROM renders WHERE lead_id=? AND status='pending')
+    AND NOT EXISTS(SELECT 1 FROM consultation_bookings WHERE lead_id=? AND
+      (status='pending' OR (calendar_key NOT LIKE 'internal:%' AND status='confirmed')))`;
+  const result=await env.DB.batch([
+    env.DB.prepare(`INSERT INTO lead_media_cleanup(lead_id,object_keys,requested_at)
+      SELECT id,(SELECT json_group_array(object_key) FROM (
+        SELECT object_key FROM photos WHERE lead_id=?
+        UNION SELECT object_key FROM renders WHERE lead_id=? AND object_key IS NOT NULL)),?
+      FROM leads WHERE id=? AND ${guard} ON CONFLICT(lead_id) DO NOTHING`)
+      .bind(leadId,leadId,new Date().toISOString(),leadId,leadId,leadId),
+    env.DB.prepare(`DELETE FROM leads WHERE id=? AND ${guard}
+      AND EXISTS(SELECT 1 FROM lead_media_cleanup WHERE lead_id=?)`).bind(leadId,leadId,leadId,leadId),
+  ]);
+  if(result[1].meta.changes!==1 && await env.DB.prepare('SELECT id FROM leads WHERE id=?').bind(leadId).first())
+    fail(409,'LEAD_BUSY','Wait for any visualization or pending booking to finish. Cancel any linked Outlook appointment before deleting this lead.');
+  const job=await env.DB.prepare('SELECT lead_id,object_keys FROM lead_media_cleanup WHERE lead_id=?').bind(leadId).first();
+  const cleaned=!job || await cleanDeletedMedia(env,job);
+  return {deleted:true,mediaCleanupPending:!cleaned};
+}
+
 export async function recordProjectVisit(env,leadId,body) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.visitId !== 'string' || !UUID.test(body.visitId))
     fail(400,'INVALID_VISIT','A valid project visit identifier is required.');
@@ -50,7 +92,8 @@ export async function listOwnerLeads(env,url) {
     conditions.push("INSTR(LOWER(first_name||' '||last_name||' '||phone||' '||phone_normalized||' '||email||' '||address),LOWER(?))>0");bindings.push(query);
   }
   const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
-  const [overview,total,rows,tracking] = await Promise.all([
+  await retryDeletedMedia(env);
+  const [overview,total,rows,tracking,cleanup] = await Promise.all([
     env.DB.prepare(PROGRESS+`SELECT COUNT(*) AS total,
       COALESCE(SUM(CASE WHEN booking_status='confirmed' THEN 1 ELSE 0 END),0) AS booked,
       COALESCE(SUM(CASE WHEN booking_status IS NULL OR booking_status<>'confirmed' THEN 1 ELSE 0 END),0) AS needs_booking,
@@ -58,8 +101,9 @@ export async function listOwnerLeads(env,url) {
     env.DB.prepare(PROGRESS+'SELECT COUNT(*) AS count FROM staged'+where).bind(...bindings).first(),
     env.DB.prepare(PROGRESS+'SELECT * FROM staged'+where+' ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?').bind(...bindings,pageSize,(page-1)*pageSize).all(),
     env.DB.prepare("SELECT value FROM app_metadata WHERE key='activity_tracking_started_at'").first(),
+    env.DB.prepare('SELECT COUNT(*) AS count FROM lead_media_cleanup').first(),
   ]);
-  return {page,pageSize,total:total.count,trackingStartedAt:tracking?.value || null,
+  return {page,pageSize,total:total.count,trackingStartedAt:tracking?.value || null,pendingMediaCleanups:cleanup.count,
     overview:{total:overview.total,booked:overview.booked,needsBooking:overview.needs_booking,visualizerUsed:overview.visualizer_used},
     leads:rows.results.map(row => ({id:row.id,name:`${row.first_name} ${row.last_name}`.trim(),phone:row.phone,email:row.email,
       address:row.address,city:row.city,state:row.state,zip:row.zip,event:row.event_label,captureMode:row.capture_mode,createdAt:row.created_at,

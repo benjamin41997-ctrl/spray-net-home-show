@@ -5,7 +5,7 @@
 import * as outlookBooking from './booking.mjs';
 import * as internalBooking from './internal-booking.mjs';
 import { AddressError, addressSuggestions } from './address.mjs';
-import { OwnerError, recordProjectVisit, listOwnerLeads } from './owner.mjs';
+import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead } from './owner.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -260,7 +260,11 @@ async function uploadPhoto(request, env, lead) {
   // A failed R2 write leaves metadata available for a retry of this exact file,
   // rather than accidentally deleting a concurrent successful upload's metadata.
   await env.PHOTOS.put(row.object_key, bytes, { httpMetadata: { contentType: mime } });
-  await env.DB.prepare("UPDATE photos SET status='ready' WHERE id=?").bind(row.id).run();
+  const saved=await env.DB.prepare("UPDATE photos SET status='ready' WHERE id=? AND lead_id=?").bind(row.id,lead.id).run();
+  if(saved.meta.changes!==1) {
+    await env.PHOTOS.delete(row.object_key);
+    fail(401,'UNAUTHORIZED','This project is no longer available.');
+  }
   return json({ id: row.id, url: `/api/leads/${lead.id}/photos/${row.id}` }, inserted ? 201 : 200);
 }
 function bytesToBase64(bytes) {
@@ -466,6 +470,16 @@ async function route(request, env, config) {
     await requireAdmin(request,env);
     if (method !== 'GET') fail(405,'METHOD_NOT_ALLOWED','Use the owner lead dashboard.');
     return json(await listOwnerLeads(env,new URL(request.url)));
+  }
+  const adminLead=pathname.match(/^\/api\/admin\/leads\/([^/]+)$/);
+  if(adminLead) {
+    await requireAdmin(request,env);
+    if(method!=='DELETE')fail(405,'METHOD_NOT_ALLOWED','Use the owner lead deletion action.');
+    if(!UUID.test(adminLead[1]))fail(400,'INVALID_LEAD','Choose a valid lead.');
+    const body=await readJson(request);
+    if(body?.confirmation!=='DELETE')fail(400,'DELETE_CONFIRMATION_REQUIRED','Confirm deletion of this lead.');
+    await settleStale(env,adminLead[1].toLowerCase());
+    return json(await deleteOwnerLead(env,adminLead[1],body));
   }
   const adminBlock = pathname.match(/^\/api\/admin\/blocks\/([^/]+)$/);
   const adminCancel = pathname.match(/^\/api\/admin\/bookings\/([^/]+)\/cancel$/);

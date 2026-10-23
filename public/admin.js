@@ -162,12 +162,20 @@ function initializeAdmin() {
       }
       card.append(progress,element('p','lead-last-visit',`Last project open: ${lead.lastAccessedAt?formatEasternInstant(lead.lastAccessedAt):'Not recorded'}`),
         element('p','lead-last-visit',`${lead.remainingRenders} free renders remaining${lead.pendingRenderCount?' · Render in progress':''}`));
+      const actions=element('div','lead-actions'),remove=element('button','danger-button','Delete lead');
+      remove.type='button';remove.setAttribute('data-action-button','');remove.setAttribute('aria-label',`Delete lead for ${lead.name || 'this visitor'}`);
+      remove.addEventListener('click',()=>{
+        if(state.busy || !state.authenticated || !confirm(`Delete ${lead.name || 'this lead'} (${lead.phone})? This permanently removes their contact details, saved project, photos, visualizations, visits and internal consultation. Their phone number can be registered again. This cannot be undone.`))return;
+        mutate(`/api/admin/leads/${lead.id}`,'DELETE',{confirmation:'DELETE'},'Lead deleted. The phone number can be used for a new submission. Use Next visitor on the tablet, or refresh the visitor page to start again.');
+      });
+      actions.append(remove);card.append(actions);
       $('#leads-list').append(card);
     }
     $('#lead-count').textContent=String(data.total);$('#leads-empty').hidden=data.leads.length>0;
     $('#lead-page-status').textContent=`Page ${data.page} of ${state.leadPages} · ${data.total} ${data.total===1?'lead':'leads'}`;
     const since=validInstant(data.trackingStartedAt)?` Tracking began ${formatEasternInstant(data.trackingStartedAt)}; earlier visits are unavailable.`:'';
-    $('#lead-activity-note').textContent='Visits count saved-project page opens, including the first submission. Reloading counts as another visit; steps within the same page do not. Stages reflect saved bookings, uploads and completed renders.'+since;
+    $('#lead-activity-note').textContent='Visits count saved-project page opens, including the first submission. Reloading counts as another visit; steps within the same page do not. Stages reflect saved bookings, uploads and completed renders.'+since
+      +(data.pendingMediaCleanups?' Some deleted-project files are waiting for cleanup. Refresh the portal to retry.':'');
   }
   function renderCalendar(data) {
     if (!data || !Array.isArray(data.bookings) || !Array.isArray(data.blocks)) throw new Error('INVALID_CALENDAR_RESPONSE');
@@ -245,7 +253,7 @@ function initializeAdmin() {
   }
   async function mutate(path, method, body, successMessage) {
     if (!state.authenticated || state.busy) return;
-    const generation = state.generation; busy(true, 'Updating the calendar…'); message();
+    const generation = state.generation; busy(true, 'Updating the portal…'); message();
     try {
       await request(path, { method, body }); if (generation !== state.generation) return;
       if (path === '/api/admin/blocks' && method === 'POST') $('#block-form').reset();

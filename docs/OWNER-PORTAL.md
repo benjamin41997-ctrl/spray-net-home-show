@@ -4,6 +4,14 @@ Open `https://benjamin41997-ctrl.github.io/spray-net-home-show/admin.html` and e
 
 The key remains in tab memory, clears on sign-out/navigation, and expires after ten minutes without activity. Both dashboard and calendar require this key. Visitor project tokens cannot access owner records. Search, stage filters and 50-row pages cover all saved leads; CSV export retains its existing import columns.
 
+## Delete a test lead
+
+Each lead card has a **Delete lead** button with a confirmation naming the lead and phone number. This permanently removes that lead, internal booking, photos, visualizations and visit history, revokes its old project link, and frees the phone number for another submission. On a booth tablet, choose **Next visitor** to start again; refreshing a visitor page also clears deleted saved access and opens a new form.
+
+Deletion is refused while a visualization or unresolved booking is running. A linked external Outlook appointment must be cancelled separately before deletion. Global daily rendering-attempt counts are retained, so deleting a lead does not bypass the API spending cap. Private photo/render cleanup is retried from a queue if storage is temporarily unavailable; the dashboard reports pending cleanup. This queue contains object keys and a lead ID, without customer contact details or access tokens.
+
+Apply `backend/migrations/0005_lead_deletion_cleanup.sql` before deploying the deletion API. The cleanup manifest and lead deletion commit in one transaction; incomplete media cleanup cannot keep a phone number blocked or restore old project access.
+
 ## Lead progress
 
 - **Lead received:** contact form was saved.

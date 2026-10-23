@@ -156,3 +156,9 @@ CREATE INDEX IF NOT EXISTS lead_visits_latest ON lead_visits(lead_id, accessed_a
 CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT OR IGNORE INTO app_metadata(key,value)
   VALUES ('activity_tracking_started_at',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+CREATE TABLE IF NOT EXISTS lead_media_cleanup (
+  lead_id TEXT PRIMARY KEY,
+  object_keys TEXT NOT NULL,
+  requested_at TEXT NOT NULL
+);

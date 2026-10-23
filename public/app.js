@@ -103,7 +103,17 @@ async function restoreSession() {
   } else state.lead = matching?.lead || null;
   if (!state.lead) return;
   state.pendingLead = null; saveSession({ lead: state.lead, pendingLead: null });
-  await refreshSession(); state.pendingRender = matching?.pendingRender || null; state.completedRender = matching?.completedRender || null;
+  try {await refreshSession();}
+  catch(error) {
+    if(error.status!==401)throw error;
+    // Deleted or revoked saved access must not trap a test device on a dead
+    // project. Network failures still retain the session for safe recovery.
+    visits.reset();state.lead=null;state.session=null;state.pendingLead=null;state.pendingBooking=null;
+    state.pendingRender=null;state.completedRender=null;
+    try {sessionStorage.removeItem(STORAGE_KEY);}catch{}
+    message('This saved project is no longer available. You can submit a new request below.');return;
+  }
+  state.pendingRender = matching?.pendingRender || null; state.completedRender = matching?.completedRender || null;
   showSaved();
   if (state.session.booking?.status === 'pending') $('#access-status').textContent = 'Your appointment is still being verified. Reopen scheduling to check the same request.';
 }

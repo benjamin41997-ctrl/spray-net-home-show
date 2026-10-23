@@ -117,6 +117,82 @@ async function withFetch(fetcher, work) {
   try { return await work(); } finally { globalThis.fetch = previous; }
 }
 
+test('lead deletion requires owner authorization and confirmation, releases the phone, and revokes old access',async()=>{
+  const env=environment(),person=await lead(env),other=await lead(env,{...sample(),phone:'7045550193'});
+  const path=`/api/admin/leads/${person.id}`,body={confirmation:'DELETE'};
+  for(const token of [undefined,person.token,'not-an-owner-token-32-characters-long'])
+    assert.equal((await request(env,path,{method:'DELETE',body,token})).status,401);
+  assert.equal((await request(env,path,{method:'DELETE',body:{},token:env.ADMIN_TOKEN})).status,400);
+  assert.equal((await request(env,path,{method:'GET',token:env.ADMIN_TOKEN})).status,405);
+  const deleted=await request(env,path,{method:'DELETE',body,token:env.ADMIN_TOKEN});
+  assert.deepEqual(await deleted.json(),{deleted:true,mediaCleanupPending:false});
+  assert.equal((await request(env,`/api/leads/${person.id}/session`,{token:person.token})).status,401);
+  assert.equal((await request(env,`/api/leads/${other.id}/session`,{token:other.token})).status,200);
+  const again=await lead(env);assert.notEqual(again.id,person.id);assert.notEqual(again.token,person.token);
+  assert.equal((await request(env,path,{method:'DELETE',body,token:env.ADMIN_TOKEN})).status,200,'A lost deletion response is safe to retry.');
+  assert.ok(env.DB.sqlite.prepare('SELECT id FROM leads WHERE id=?').get(again.id),'Retry never targets the new record that reused its phone.');
+});
+
+test('deletion removes the selected project and private media while preserving other leads, time blocks and daily paid-attempt counters',async()=>{
+  const env=environment(),person=await lead(env),other=await lead(env,{...sample(),phone:'7045550194'}),uploaded=await photo(env,person);
+  await withFetch(async()=>renderedResponse(),async()=>{
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,{method:'POST',body:settings(uploaded.id),token:person.token,key:crypto.randomUUID()})).status,201);
+  });
+  env.DB.sqlite.prepare("UPDATE consultation_bookings SET calendar_key='internal:ben.hessler@spray-net.com' WHERE lead_id=?").run(person.id);
+  await request(env,`/api/leads/${person.id}/visits`,{method:'POST',body:{visitId:crypto.randomUUID()},token:person.token});
+  const block=crypto.randomUUID();env.DB.sqlite.prepare('INSERT INTO booking_time_blocks VALUES (?,?,?,?,?,?,?)').run(block,'internal:ben.hessler@spray-net.com','2026-11-03T13:00:00Z','2026-11-03T14:00:00Z','Keep','2026-10-22T18:00:00Z','2026-10-22T18:00:00Z');
+  const foreignKey=`photos/${other.id}/${crypto.randomUUID()}`;await env.PHOTOS.put(foreignKey,jpeg);
+  const before=env.DB.sqlite.prepare('SELECT SUM(attempts) AS count FROM daily_attempts').get().count;
+  const result=await request(env,`/api/admin/leads/${person.id}`,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN});assert.equal(result.status,200);
+  for(const table of ['photos','renders','consultation_bookings','lead_visits'])assert.equal(env.DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE lead_id=?`).get(person.id).count,0,table);
+  assert.equal(env.PHOTOS.files.size,1);assert.ok(env.PHOTOS.files.has(foreignKey));
+  assert.equal(env.DB.sqlite.prepare('SELECT SUM(attempts) AS count FROM daily_attempts').get().count,before);
+  assert.ok(env.DB.sqlite.prepare('SELECT id FROM booking_time_blocks WHERE id=?').get(block));
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM lead_media_cleanup').get().count,0);
+});
+
+test('running renders, unresolved bookings and live external appointments cannot be deleted',async()=>{
+  const env=environment(),person=await lead(env),uploaded=await photo(env,person),path=`/api/admin/leads/${person.id}`;
+  const destroy=()=>request(env,path,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN});
+  assert.equal((await destroy()).status,409,'An external confirmed calendar event must be cancelled first.');
+  env.DB.sqlite.prepare("UPDATE consultation_bookings SET calendar_key='internal:ben.hessler@spray-net.com',status='pending' WHERE lead_id=?").run(person.id);
+  assert.equal((await destroy()).status,409);
+  env.DB.sqlite.prepare("UPDATE consultation_bookings SET status='confirmed' WHERE lead_id=?").run(person.id);
+  const id=crypto.randomUUID(),now=new Date().toISOString();env.DB.sqlite.prepare(`INSERT INTO renders(id,lead_id,photo_id,request_key,input_hash,status,day,daily_limit,color_name,color_hex,surface,created_at,updated_at) VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?)`)
+    .run(id,person.id,uploaded.id,crypto.randomUUID(),'test',now.slice(0,10),50,'White','#FFFFFF','Cabinets',now,now);
+  assert.equal((await destroy()).status,409);assert.ok(env.DB.sqlite.prepare('SELECT id FROM leads WHERE id=?').get(person.id));
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM lead_media_cleanup').get().count,0);
+});
+
+test('private media cleanup failures preserve a retry manifest without retaining the deleted phone or credentials',async()=>{
+  const env=environment(),person=await lead(env),uploaded=await photo(env,person);
+  env.DB.sqlite.prepare("UPDATE consultation_bookings SET status='cancelled' WHERE lead_id=?").run(person.id);
+  const remove=env.PHOTOS.delete;env.PHOTOS.delete=async()=>{throw new Error('Synthetic R2 outage');};
+  const response=await request(env,`/api/admin/leads/${person.id}`,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN});
+  assert.deepEqual(await response.json(),{deleted:true,mediaCleanupPending:true});assert.equal(env.DB.sqlite.prepare('SELECT id FROM leads WHERE id=?').get(person.id),undefined);
+  const job=env.DB.sqlite.prepare('SELECT * FROM lead_media_cleanup').get();assert.ok(!JSON.stringify(job).includes(person.token));assert.ok(!JSON.stringify(job).includes(sample().phone));
+  assert.ok(env.PHOTOS.files.size>0);env.PHOTOS.delete=remove;
+  await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN});assert.equal(env.PHOTOS.files.size,0);assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM lead_media_cleanup').get().count,0);
+});
+
+test('failed database deletion rolls back its cleanup manifest and cannot remove active project files',async()=>{
+  const env=environment(),person=await lead(env);
+  env.DB.sqlite.exec("CREATE TRIGGER reject_test_delete BEFORE DELETE ON leads BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;");
+  const response=await request(env,`/api/admin/leads/${person.id}`,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN});assert.equal(response.status,503);
+  assert.ok(env.DB.sqlite.prepare('SELECT id FROM leads WHERE id=?').get(person.id));assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM lead_media_cleanup').get().count,0);
+});
+
+test('an upload finishing after owner deletion cleans its late object instead of resurrecting the project',async()=>{
+  const env=environment({BOOKING_PROVIDER:'internal'}),person=await lead(env);confirmBooking(env,person);
+  env.DB.sqlite.prepare("UPDATE consultation_bookings SET calendar_key='internal:ben.hessler@spray-net.com' WHERE lead_id=?").run(person.id);
+  const put=env.PHOTOS.put;env.PHOTOS.put=async(key,data)=>{
+    const response=await request(env,`/api/admin/leads/${person.id}`,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN});assert.equal(response.status,200);await put(key,data);
+  };
+  const form=new FormData();form.append('photo',new Blob([jpeg],{type:'image/jpeg'}),'home.jpg');
+  const response=await request(env,`/api/leads/${person.id}/photos`,{method:'POST',body:form,token:person.token});
+  assert.equal(response.status,401);assert.equal(env.PHOTOS.files.size,0);assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM leads').get().count,0);
+});
+
 test('owner dashboard requires the administrator key and never exposes visitor credentials or object storage paths',async()=>{
   const env=environment(),person=await lead(env);
   for(const token of [undefined,person.token,'wrong-administrator-token-32-characters'])
