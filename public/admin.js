@@ -3,6 +3,8 @@ import { createCalendarFile } from './calendar.js';
 
 const EASTERN_ZONE = 'America/New_York';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STAGES = {lead_submitted:'Lead received',consultation_requested:'Scheduling started',booking_pending:'Booking pending',
+  consultation_booked:'Consultation booked',photos_uploaded:'Photos uploaded',visualizations_created:'Visualizations created',consultation_cancelled:'Consultation cancelled'};
 const localParts = new Intl.DateTimeFormat('en-US', { timeZone: EASTERN_ZONE, calendar: 'iso8601', numberingSystem: 'latn',
   year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const displayDate = new Intl.DateTimeFormat('en-US', { timeZone: EASTERN_ZONE, weekday: 'short', month: 'short', day: 'numeric',
@@ -50,7 +52,7 @@ if (typeof document !== 'undefined') initializeAdmin();
 
 function initializeAdmin() {
   const $ = selector => document.querySelector(selector);
-  const state = { token: '', busy: false, authenticated: false, generation: 0, lastActivity: Date.now(), controllers: new Set(), downloads: new Set() };
+  const state = { token: '', busy: false, authenticated: false, generation: 0, lastActivity: Date.now(), controllers: new Set(), downloads: new Set(),leadPage:1,leadPages:1 };
   let apiBase = '';
   try { apiBase = safeApiBase(window.SPRAYNET_CONFIG?.apiBase, location.origin); } catch {}
   const message = (text = '', success = false) => {
@@ -61,17 +63,24 @@ function initializeAdmin() {
     $('#appointment-count').textContent = ''; $('#block-count').textContent = '';
     $('#appointments-empty').hidden = true; $('#blocks-empty').hidden = true; $('#calendar-status').textContent = '';
   }
+  function clearLeads() {
+    $('#leads-list').replaceChildren();$('#lead-count').textContent='';$('#leads-empty').hidden=true;
+    $('#lead-page-status').textContent='';$('#lead-activity-note').textContent='';
+    for (const id of ['#total-leads','#needs-booking','#booked-leads','#visualizer-leads']) $(id).textContent='—';
+  }
   function busy(value, label = '') {
     state.busy = value;
     $('#sign-in').disabled = value || !apiBase;
     for (const button of document.querySelectorAll('[data-action-button]')) button.disabled = value;
+    $('#lead-stage').disabled=value;$('#previous-leads').disabled=value || state.leadPage<=1;
+    $('#next-leads').disabled=value || state.leadPage>=state.leadPages;
     if (label) $('#calendar-status').textContent = label;
   }
   function signOut(text = 'You’re signed out.') {
     state.generation++; state.token = ''; state.authenticated = false;
     for (const controller of state.controllers) controller.abort(); state.controllers.clear();
     for (const url of state.downloads) URL.revokeObjectURL(url); state.downloads.clear();
-    clearCalendar(); $('#staff-key').value = ''; $('#block-form').reset();
+    clearCalendar();clearLeads();state.leadPage=1;state.leadPages=1;$('#lead-search-form').reset();showTab('leads');$('#staff-key').value = ''; $('#block-form').reset();
     $('#calendar-workspace').hidden = true; $('#sign-in-panel').hidden = false; $('#sign-out').hidden = true;
     busy(false); message(text); $('#staff-key').focus({ preventScroll: true });
   }
@@ -79,7 +88,7 @@ function initializeAdmin() {
     if (error?.status === 401 || error?.status === 403) return 'The staff access key was not accepted. Sign in again to continue.';
     if (error?.status === 404) return 'Staff scheduling is unavailable at this connection. No calendar data is shown.';
     if (error?.code === 'INTERNAL_SCHEDULER_REQUIRED') return 'This staff calendar is available only with the internal scheduler. No calendar data is shown.';
-    return error?.safeMessage || 'The calendar connection failed. Private details have been cleared. Sign in again when the connection is available.';
+    return error?.safeMessage || 'The portal connection failed. Private details have been cleared. Sign in again when the connection is available.';
   }
   async function request(path, { method = 'GET', body } = {}) {
     if (!apiBase || !state.token) throw new Error('CONNECTION_UNAVAILABLE');
@@ -122,6 +131,44 @@ function initializeAdmin() {
     return row;
   }
   function validInstant(value) { return typeof value === 'string' && Number.isFinite(Date.parse(value)); }
+  function showTab(view,focus=false) {
+    for (const name of ['leads','calendar']) {
+      const active=name===view,tab=$(`#${name}-tab`);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
+      $(`#${name}-panel`).hidden=!active;if(active && focus)tab.focus();
+    }
+  }
+  function renderLeads(data) {
+    if (!data || !Array.isArray(data.leads) || !data.overview || !Number.isInteger(data.total) || !Number.isInteger(data.page) || data.pageSize!==50)
+      throw new Error('INVALID_LEAD_RESPONSE');
+    for (const row of data.leads) if (!row || !UUID.test(row.id) || !Object.hasOwn(STAGES,row.stage) || !validInstant(row.createdAt)
+      || ![row.photoCount,row.renderCount,row.visitCount,row.remainingRenders].every(value=>Number.isInteger(value)&&value>=0)
+      || (row.lastAccessedAt && !validInstant(row.lastAccessedAt))) throw new Error('INVALID_LEAD_RESPONSE');
+    clearLeads();state.leadPages=Math.max(1,Math.ceil(data.total/data.pageSize));
+    for (const [selector,key] of [['#total-leads','total'],['#needs-booking','needsBooking'],['#booked-leads','booked'],['#visualizer-leads','visualizerUsed']]) {
+      if (!Number.isInteger(data.overview[key]) || data.overview[key]<0) throw new Error('INVALID_LEAD_RESPONSE');
+      $(selector).textContent=String(data.overview[key]);
+    }
+    for (const lead of data.leads) {
+      const card=element('article','lead-card'),header=element('div','lead-card-header');
+      const badge=lead.booking?.status==='cancelled'?' cancelled':lead.booking?.status==='confirmed'?' booked':'';
+      header.append(element('h3','',lead.name || 'Home show visitor'),element('span','lead-stage'+badge,STAGES[lead.stage]));
+      card.append(header,element('p','lead-created',`Submitted ${formatEasternInstant(lead.createdAt)} · ${lead.captureMode==='tablet'?'Booth tablet':'Mobile'}`),detail('Phone',lead.phone,true));
+      if(lead.email)card.append(detail('Email',lead.email));
+      card.append(detail('Project address',lead.address));
+      if(lead.booking?.start && validInstant(lead.booking.start)) card.append(element('p','lead-booking',`${lead.booking.status==='confirmed'?'Consultation':lead.booking.status==='cancelled'?'Cancelled consultation':'Pending consultation'} · ${formatEasternInstant(lead.booking.start)}`));
+      const progress=element('div','lead-progress');
+      for(const [value,label] of [[lead.visitCount,'Recorded visits'],[lead.photoCount,'Photos uploaded'],[lead.renderCount,'Renders completed']]) {
+        const metric=element('div');metric.append(element('strong','',String(value)),element('span','',label));progress.append(metric);
+      }
+      card.append(progress,element('p','lead-last-visit',`Last project open: ${lead.lastAccessedAt?formatEasternInstant(lead.lastAccessedAt):'Not recorded'}`),
+        element('p','lead-last-visit',`${lead.remainingRenders} free renders remaining${lead.pendingRenderCount?' · Render in progress':''}`));
+      $('#leads-list').append(card);
+    }
+    $('#lead-count').textContent=String(data.total);$('#leads-empty').hidden=data.leads.length>0;
+    $('#lead-page-status').textContent=`Page ${data.page} of ${state.leadPages} · ${data.total} ${data.total===1?'lead':'leads'}`;
+    const since=validInstant(data.trackingStartedAt)?` Tracking began ${formatEasternInstant(data.trackingStartedAt)}; earlier visits are unavailable.`:'';
+    $('#lead-activity-note').textContent='Visits count saved-project page opens, including the first submission. Reloading counts as another visit; steps within the same page do not. Stages reflect saved bookings, uploads and completed renders.'+since;
+  }
   function renderCalendar(data) {
     if (!data || !Array.isArray(data.bookings) || !Array.isArray(data.blocks)) throw new Error('INVALID_CALENDAR_RESPONSE');
     for (const row of data.bookings) if (!row || !UUID.test(row.leadId) || !validInstant(row.start) || !validInstant(row.end)
@@ -181,13 +228,28 @@ function initializeAdmin() {
     if (generation !== state.generation) return false;
     renderCalendar(data); return true;
   }
+  async function loadLeads(generation=state.generation) {
+    clearLeads();
+    const query=new URLSearchParams({page:String(state.leadPage)});
+    if($('#lead-search').value.trim())query.set('q',$('#lead-search').value.trim());
+    if($('#lead-stage').value)query.set('stage',$('#lead-stage').value);
+    const data=await request('/api/admin/leads?'+query);
+    if(generation!==state.generation)return false;
+    const pages=Math.max(1,Math.ceil(data.total/data.pageSize));
+    if(state.leadPage>pages){state.leadPage=pages;return loadLeads(generation);}
+    renderLeads(data);return true;
+  }
+  async function loadWorkspace(generation=state.generation) {
+    const results=await Promise.all([loadCalendar(generation),loadLeads(generation)]);
+    return generation===state.generation && results.every(Boolean);
+  }
   async function mutate(path, method, body, successMessage) {
     if (!state.authenticated || state.busy) return;
     const generation = state.generation; busy(true, 'Updating the calendar…'); message();
     try {
       await request(path, { method, body }); if (generation !== state.generation) return;
       if (path === '/api/admin/blocks' && method === 'POST') $('#block-form').reset();
-      if (await loadCalendar(generation)) message(successMessage, true);
+      if (await loadWorkspace(generation)) message(successMessage, true);
     } catch (error) {
       if (generation !== state.generation) return;
       if ([400, 409, 422].includes(error.status) && error.code !== 'INTERNAL_SCHEDULER_REQUIRED') message(safeError(error));
@@ -202,9 +264,9 @@ function initializeAdmin() {
     state.token = input.value.trim(); input.value = ''; state.lastActivity = Date.now();
     busy(true); message('Checking staff access…');
     try {
-      if (await loadCalendar(generation)) {
+      if (await loadWorkspace(generation)) {
         state.authenticated = true; $('#sign-in-panel').hidden = true; $('#calendar-workspace').hidden = false; $('#sign-out').hidden = false;
-        message(); $('#appointments-title').setAttribute('tabindex', '-1'); $('#appointments-title').focus({ preventScroll: true });
+        message();showTab('leads',true);
       }
     } catch (error) { if (generation === state.generation) signOut(safeError(error)); }
     finally { if (generation === state.generation) busy(false); }
@@ -212,10 +274,26 @@ function initializeAdmin() {
   $('#refresh-calendar').addEventListener('click', async () => {
     if (state.busy || !state.authenticated) return;
     const generation = state.generation; busy(true); message();
-    try { await loadCalendar(generation); }
+    try { await loadWorkspace(generation); }
     catch (error) { if (generation === state.generation) signOut(safeError(error)); }
     finally { if (generation === state.generation) busy(false); }
   });
+  async function changeLeadPage(page=1) {
+    if(state.busy || !state.authenticated)return;
+    state.leadPage=page;const generation=state.generation;busy(true);message();
+    try{await loadLeads(generation);}catch(error){if(generation===state.generation)signOut(safeError(error));}
+    finally{if(generation===state.generation)busy(false);}
+  }
+  $('#lead-search-form').addEventListener('submit',event=>{event.preventDefault();changeLeadPage();});
+  $('#lead-stage').addEventListener('change',()=>changeLeadPage());
+  $('#previous-leads').addEventListener('click',()=>changeLeadPage(Math.max(1,state.leadPage-1)));
+  $('#next-leads').addEventListener('click',()=>changeLeadPage(Math.min(state.leadPages,state.leadPage+1)));
+  for(const name of ['leads','calendar']) {
+    $(`#${name}-tab`).addEventListener('click',()=>showTab(name));
+    $(`#${name}-tab`).addEventListener('keydown',event=>{
+      if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();showTab(event.key==='Home'?'leads':event.key==='End'?'calendar':name==='leads'?'calendar':'leads',true);}
+    });
+  }
   $('#download-leads').addEventListener('click', async () => {
     if (state.busy || !state.authenticated) return;
     const generation = state.generation, controller = new AbortController(); state.controllers.add(controller);

@@ -6,33 +6,42 @@
   <meta name="theme-color" content="#003965">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow,noarchive">
-  <title>Staff calendar | Spray-Net South Charlotte</title>
+  <title>Owner portal | Spray-Net South Charlotte</title>
   <link rel="icon" href="./assets/favicon.png">
   <link rel="stylesheet" href="./admin.css">
   <script src="./config.js" defer></script>
   <script src="./admin.js" type="module"></script>
 </head>
 <body>
-  <a class="skip" href="#main">Skip to staff calendar</a>
+  <a class="skip" href="#main">Skip to owner portal</a>
   <header class="staff-header">
     <a href="./?mode=tablet" class="brand" aria-label="Spray-Net South Charlotte lead capture"><img src="./assets/logo.png" width="204" height="61" alt="Spray-Net — Custom Chemistry. Smarter Painting."><span>South Charlotte</span></a>
-    <div class="header-right"><span class="staff-tag">STAFF CALENDAR</span><button id="sign-out" class="button secondary small" type="button" hidden>Sign out</button></div>
+    <div class="header-right"><span class="staff-tag">OWNER PORTAL</span><button id="sign-out" class="button secondary small" type="button" hidden>Sign out</button></div>
   </header>
   <main id="main" class="staff-main">
-    <p class="eyebrow">KEEP THE DAY RUNNING SMOOTHLY</p><h1>Consultations & availability.</h1>
-    <p class="intro">Manage upcoming visits and the times your team is unavailable. All times are Eastern.</p>
+    <p class="eyebrow">YOUR HOME SHOW FOLLOW-UP</p><h1>Leads, progress & consultations.</h1>
+    <p class="intro">See who signed up, where they are in the process, and when they last opened their project. All times are Eastern.</p>
     <p id="admin-message" class="message" role="alert" hidden></p>
     <section id="sign-in-panel" class="sign-in-card" aria-labelledby="sign-in-title">
-      <h2 id="sign-in-title">Staff access</h2><p>Enter your staff access key to view the private calendar.</p>
+      <h2 id="sign-in-title">Owner access</h2><p>Enter your staff access key to view private leads and the consultation calendar.</p>
       <form id="sign-in-form" autocomplete="off" novalidate>
         <label for="staff-key">Staff access key</label><input id="staff-key" name="staffKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="32" maxlength="256" required aria-describedby="key-note">
         <p id="key-note" class="muted small-text">Your key stays in this tab’s memory. It clears when you sign out or close the page. You’ll be signed out after 10 minutes without activity.</p>
-        <button id="sign-in" class="button full" type="submit">Open staff calendar <span aria-hidden="true">→</span></button>
+        <button id="sign-in" class="button full" type="submit">Open owner portal <span aria-hidden="true">→</span></button>
       </form>
     </section>
     <div id="calendar-workspace" hidden>
+      <div class="workspace-bar"><div class="portal-tabs" role="tablist" aria-label="Owner portal views"><button id="leads-tab" role="tab" aria-selected="true" aria-controls="leads-panel" type="button">Leads & activity</button><button id="calendar-tab" role="tab" aria-selected="false" aria-controls="calendar-panel" tabindex="-1" type="button">Calendar</button></div><div class="workspace-actions"><button id="download-leads" class="button secondary small" type="button" data-action-button>Download leads CSV <span aria-hidden="true">↓</span></button><button id="refresh-calendar" class="button secondary small" type="button" data-action-button>Refresh portal <span aria-hidden="true">↻</span></button></div></div>
+      <p id="calendar-status" class="portal-updated" role="status"></p>
+      <section id="leads-panel" role="tabpanel" aria-labelledby="leads-tab">
+        <div class="lead-overview" aria-label="Lead overview"><div><strong id="total-leads">0</strong><span>Leads received</span></div><div><strong id="needs-booking">0</strong><span>Without a confirmed booking</span></div><div><strong id="booked-leads">0</strong><span>Consultations booked</span></div><div><strong id="visualizer-leads">0</strong><span>Created a visualization</span></div></div>
+        <div class="section-title"><h2 id="leads-title">Your leads</h2><span id="lead-count" class="count"></span></div>
+        <form id="lead-search-form" class="lead-filters" autocomplete="off"><div class="field"><label for="lead-search">Find a lead</label><input id="lead-search" type="search" name="q" maxlength="160" placeholder="Name, phone, email or address"></div><div class="field"><label for="lead-stage">Stage</label><select id="lead-stage" name="stage"><option value="">All stages</option><option value="lead_submitted">Lead received</option><option value="consultation_requested">Scheduling started</option><option value="booking_pending">Booking pending</option><option value="consultation_booked">Consultation booked</option><option value="photos_uploaded">Photos uploaded</option><option value="visualizations_created">Visualizations created</option><option value="consultation_cancelled">Consultation cancelled</option></select></div><button class="button small" type="submit" data-action-button>Search</button></form>
+        <p id="lead-activity-note" class="activity-note"></p><p id="leads-empty" class="empty" hidden>No leads match this view.</p><div id="leads-list" class="leads-list"></div>
+        <nav class="lead-pagination" aria-label="Lead pages"><button id="previous-leads" class="button secondary small" type="button" data-action-button disabled>Previous</button><p id="lead-page-status" role="status"></p><button id="next-leads" class="button secondary small" type="button" data-action-button disabled>Next</button></nav>
+      </section>
+      <section id="calendar-panel" role="tabpanel" aria-labelledby="calendar-tab" hidden>
       <div class="calendar-notice"><strong>Keep unavailable time up to date.</strong><p>This calendar does not read Outlook. Add your existing appointments, days off, and other unavailable time below before offering consultations.</p><p>You can download a confirmed visit for Outlook with 30 minutes added for travel. Import it manually; changes and cancellations here do not update Outlook.</p></div>
-      <div class="workspace-bar"><p id="calendar-status" role="status">Loading your calendar…</p><div class="workspace-actions"><button id="download-leads" class="button secondary small" type="button" data-action-button>Download leads CSV <span aria-hidden="true">↓</span></button><button id="refresh-calendar" class="button secondary small" type="button" data-action-button>Refresh calendar <span aria-hidden="true">↻</span></button></div></div>
       <div class="workspace-layout">
         <section class="appointments-panel" aria-labelledby="appointments-title"><div class="section-title"><h2 id="appointments-title">Upcoming consultations</h2><span id="appointment-count" class="count"></span></div><p id="appointments-empty" class="empty" hidden>No upcoming consultations.</p><div id="appointments-list" class="appointments-list"></div></section>
         <aside class="availability-panel">
@@ -47,9 +56,10 @@
           <section class="blocks-panel" aria-labelledby="blocks-title"><div class="section-title"><h2 id="blocks-title">Unavailable blocks</h2><span id="block-count" class="count"></span></div><p id="blocks-empty" class="empty" hidden>No upcoming blocks. Add any time you need to keep free.</p><div id="blocks-list" class="blocks-list"></div></section>
         </aside>
       </div>
+      </section>
     </div>
   </main>
   <footer class="staff-footer"><span>Spray-Net South Charlotte · Private staff access</span><a href="./?mode=tablet">Back to lead capture ↗</a></footer>
-  <noscript><p class="noscript">JavaScript is required for the private staff calendar.</p></noscript>
+  <noscript><p class="noscript">JavaScript is required for the private owner portal.</p></noscript>
 </body>
 </html>

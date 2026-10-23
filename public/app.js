@@ -3,6 +3,7 @@ import { createStudioLink, parseStudioAccess, sameStudioAccess } from './access.
 import { renderQr } from './qr.js';
 import { createCalendarFile } from './calendar.js';
 import { attachAddressAutocomplete } from './address-autocomplete.js';
+import { createVisitRecorder } from './visits.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
@@ -17,6 +18,7 @@ let apiBase = '', lastActivity = Date.now();
 const lookupAddress = (query,{signal}) => request('/api/addresses/suggest',{method:'POST',body:{query},signal});
 const leadAddress = attachAddressAutocomplete($('#lead-address'),{lookup:lookupAddress});
 const bookingAddress = attachAddressAutocomplete($('#booking-address'),{lookup:lookupAddress});
+const visits = createVisitRecorder((access,body,signal) => request(`/api/leads/${access.id}/visits`,{method:'POST',token:access.token,body,signal}));
 function readSession() { try { return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null'); } catch { return null; } }
 function saveSession(extra = {}) { try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...readSession(), apiBase, ...extra })); } catch {} }
 function leadToken() { const b = crypto.getRandomValues(new Uint8Array(32)); return btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''); }
@@ -51,6 +53,7 @@ function updateRenderAvailability() {
   $('#studio-status').textContent = state.renderAvailable ? 'Your project is saved. Explore a color idea whenever you are ready.' : 'Your consultation is confirmed. Image generation is not available yet; save your private link and return later.';
 }
 function showSaved({ focus = false } = {}) {
+  void visits.record(state.lead);
   $('#lead-panel').hidden = true; $('#page-intro').hidden = true; $('#saved-panel').hidden = false; $('#studio').hidden = true;
   $('#saved-message').textContent = state.session?.lead?.name ? `Thanks, ${state.session.lead.name}. Your details are saved with our team.` : 'Your details are saved with our team.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
@@ -179,6 +182,10 @@ async function loadSlots() {
       $('#booking-status').textContent = 'Checking your previous appointment request…';
       await finishBooking(pending); return;
     }
+    if (state.session?.consultationPreference !== 'schedule_now') {
+      await request(`/api/leads/${state.lead.id}/consultation`,{method:'POST',token:state.lead.token,body:{consultationPreference:'schedule_now'}});
+      state.session.consultationPreference = 'schedule_now';
+    }
     const data = await request(`/api/leads/${state.lead.id}/consultation/slots`, { token: state.lead.token });
     state.slots = data.slots || []; state.selectedSlot = ''; renderSlots();
     $('#booking-status').textContent = state.slots.length ? 'Choose your consultation time below.' : 'No online times are available right now. Your details are saved; our team can help find a time.';
@@ -222,6 +229,7 @@ $('#copy-project-link').addEventListener('click', async () => {
 function resetVisitor() {
   if (state.busy) { message('Please wait for the current request to finish before clearing this tablet.'); return; }
   try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+  visits.reset();
   for (const url of [...state.urls]) release(url);
   Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
   state.shownResults.clear(); form.reset(); $('#booking-form').reset();

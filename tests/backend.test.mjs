@@ -117,6 +117,78 @@ async function withFetch(fetcher, work) {
   try { return await work(); } finally { globalThis.fetch = previous; }
 }
 
+test('owner dashboard requires the administrator key and never exposes visitor credentials or object storage paths',async()=>{
+  const env=environment(),person=await lead(env);
+  for(const token of [undefined,person.token,'wrong-administrator-token-32-characters'])
+    assert.equal((await request(env,'/api/admin/leads',{token})).status,401);
+  const response=await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN});assert.equal(response.status,200);
+  assert.equal(response.headers.get('Cache-Control'),'no-store');
+  const data=await response.json();assert.equal(data.total,1);assert.equal(data.leads[0].name,'Alex Homeowner');
+  assert.equal(data.leads[0].visitCount,0);assert.equal(data.leads[0].lastAccessedAt,null);
+  assert.ok(!JSON.stringify(data).includes(person.token));assert.ok(!JSON.stringify(data).includes(env.ADMIN_TOKEN));
+  assert.ok(!/token_hash|request_key|input_hash|object_key|graph_event_id/.test(JSON.stringify(data)));
+  const denied=await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN,headers:{Origin:'https://evil.example'}});assert.equal(denied.status,403);
+});
+
+test('authenticated project visits count page opens idempotently and ignore supplied counts, identities and timestamps',async()=>{
+  const env=environment(),person=await lead(env),other=await lead(env,{...sample(),phone:'7045550192'}),visitId=crypto.randomUUID();
+  const path=`/api/leads/${person.id}/visits`,body={visitId,leadId:other.id,accessedAt:'2099-01-01T00:00:00Z',count:999};
+  assert.equal((await request(env,path,{method:'POST',body,token:other.token})).status,401);
+  for(const bad of [null,{},[],{visitId:'bad'}])assert.equal((await request(env,path,{method:'POST',body:bad,token:person.token})).status,400);
+  const replies=await Promise.all([request(env,path,{method:'POST',body,token:person.token}),request(env,path,{method:'POST',body,token:person.token})]);
+  assert.deepEqual((await Promise.all(replies.map(response=>response.json()))).map(row=>row.recorded).sort(),[false,true]);
+  const before=env.DB.sqlite.prepare('SELECT * FROM lead_visits WHERE lead_id=?').get(person.id);
+  assert.equal(before.visit_id,visitId);assert.ok(Date.parse(before.accessed_at)<=Date.now());
+  await request(env,path,{method:'POST',body,token:person.token});
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM lead_visits').get().n,1);
+  assert.equal(env.DB.sqlite.prepare('SELECT accessed_at FROM lead_visits').get().accessed_at,before.accessed_at);
+  await request(env,path,{method:'POST',body:{visitId:crypto.randomUUID()},token:person.token});
+  const dashboard=await(await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN})).json();
+  assert.equal(dashboard.leads.find(row=>row.id===person.id).visitCount,2);
+  assert.equal(dashboard.leads.find(row=>row.id===other.id).visitCount,0);
+  await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN});
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM lead_visits').get().n,2,'Owner reads never count as customer visits.');
+});
+
+test('owner stages reflect authoritative booking, upload and completed render records with cancellation taking precedence',async()=>{
+  const env=environment(),people=[];
+  for(let index=0;index<7;index++)people.push(await lead(env,{...sample(),phone:`70455501${String(index).padStart(2,'0')}`}));
+  await request(env,`/api/leads/${people[1].id}/consultation`,{method:'POST',body:{consultationPreference:'schedule_now'},token:people[1].token});
+  confirmBooking(env,people[2],'pending');confirmBooking(env,people[3]);await photo(env,people[4]);
+  const uploaded=await photo(env,people[5]);
+  await withFetch(async()=>renderedResponse(),async()=>{
+    const response=await request(env,`/api/leads/${people[5].id}/renders`,{method:'POST',body:settings(uploaded.id),token:people[5].token,key:crypto.randomUUID()});assert.equal(response.status,201);
+  });
+  await photo(env,people[6]);confirmBooking(env,people[6],'cancelled');
+  const data=await(await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN})).json();
+  const stages=['lead_submitted','consultation_requested','booking_pending','consultation_booked','photos_uploaded','visualizations_created','consultation_cancelled'];
+  people.forEach((person,index)=>assert.equal(data.leads.find(row=>row.id===person.id).stage,stages[index]));
+  assert.deepEqual(data.overview,{total:7,booked:3,needsBooking:4,visualizerUsed:1});
+  const filtered=await(await request(env,'/api/admin/leads?stage=visualizations_created',{token:env.ADMIN_TOKEN})).json();assert.equal(filtered.total,1);assert.equal(filtered.leads[0].id,people[5].id);
+});
+
+test('owner search is bound literal text, stages are allowlisted, and pagination reaches every saved lead',async()=>{
+  const env=environment({LEADS_PER_IP_HOUR:'1000'});
+  for(let index=0;index<51;index++)await lead(env,{...sample(),name:'',firstName:`Visitor ${index}`,phone:`704555${String(index).padStart(4,'0')}`});
+  const first=await(await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN})).json();
+  const second=await(await request(env,'/api/admin/leads?page=2',{token:env.ADMIN_TOKEN})).json();
+  assert.equal(first.leads.length,50);assert.equal(second.leads.length,1);assert.equal(new Set([...first.leads,...second.leads].map(row=>row.id)).size,51);
+  const found=await(await request(env,'/api/admin/leads?q=Visitor%2050',{token:env.ADMIN_TOKEN})).json();assert.equal(found.total,1);
+  const injection=await(await request(env,'/api/admin/leads?q='+encodeURIComponent("%' OR 1=1 --"),{token:env.ADMIN_TOKEN})).json();assert.equal(injection.total,0);
+  for(const suffix of ['?page=0','?page=1.5','?stage=made_up','?q='+'a'.repeat(161)])assert.equal((await request(env,'/api/admin/leads'+suffix,{token:env.ADMIN_TOKEN})).status,400);
+});
+
+test('activity migration is additive, repeatable and preserves old leads without inventing historical visits',async()=>{
+  const env=environment(),person=await lead(env);
+  const before=env.DB.sqlite.prepare('SELECT token_hash,created_at FROM leads WHERE id=?').get(person.id);
+  env.DB.sqlite.exec('DROP TABLE lead_visits;DROP TABLE app_metadata;');
+  const migration=readFileSync(new URL('../backend/migrations/0004_owner_activity.sql',import.meta.url),'utf8');
+  env.DB.sqlite.exec(migration);const started=env.DB.sqlite.prepare('SELECT value FROM app_metadata').get().value;env.DB.sqlite.exec(migration);
+  assert.deepEqual(env.DB.sqlite.prepare('SELECT token_hash,created_at FROM leads WHERE id=?').get(person.id),before);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM lead_visits').get().n,0);
+  assert.equal(env.DB.sqlite.prepare('SELECT value FROM app_metadata').get().value,started);
+});
+
 test('readiness fails closed for missing bindings, secrets, schema; CORS requires exact origins', async () => {
   const unconfigured = await request({}, '/api/health', { headers: { Origin: '' } });
   assert.deepEqual(await unconfigured.json(), { ready: false, renderAvailable: false, freeRenders: 3,

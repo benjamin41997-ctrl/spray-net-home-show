@@ -5,6 +5,7 @@
 import * as outlookBooking from './booking.mjs';
 import * as internalBooking from './internal-booking.mjs';
 import { AddressError, addressSuggestions } from './address.mjs';
+import { OwnerError, recordProjectVisit, listOwnerLeads } from './owner.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -461,6 +462,11 @@ async function route(request, env, config) {
     return json(await addressSuggestions(env, body, request));
   }
   if (pathname === '/api/admin/leads.csv' && method === 'GET') return exportCsv(request, env);
+  if (pathname === '/api/admin/leads') {
+    await requireAdmin(request,env);
+    if (method !== 'GET') fail(405,'METHOD_NOT_ALLOWED','Use the owner lead dashboard.');
+    return json(await listOwnerLeads(env,new URL(request.url)));
+  }
   const adminBlock = pathname.match(/^\/api\/admin\/blocks\/([^/]+)$/);
   const adminCancel = pathname.match(/^\/api\/admin\/bookings\/([^/]+)\/cancel$/);
   if (pathname === '/api/admin/bookings' || pathname === '/api/admin/blocks' || adminBlock || adminCancel) {
@@ -481,6 +487,12 @@ async function route(request, env, config) {
     fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
   }
   if (pathname === '/api/leads' && method === 'POST') return createLead(request, env, config);
+  const visit = pathname.match(/^\/api\/leads\/([^/]+)\/visits$/);
+  if (visit && UUID.test(visit[1])) {
+    const lead = await leadFor(request,env,visit[1]);
+    if (method !== 'POST') fail(405,'METHOD_NOT_ALLOWED','Use the project visit recorder.');
+    return json(await recordProjectVisit(env,lead.id,await readJson(request)));
+  }
   const bookingRoute = pathname.match(/^\/api\/leads\/([^/]+)\/consultation\/(slots|book)$/);
   if (bookingRoute && UUID.test(bookingRoute[1])) {
     const lead = await leadFor(request, env, bookingRoute[1]);
@@ -570,7 +582,7 @@ export default {
         response = await route(request, bindings, config);
       }
     } catch (error) {
-      const safe = error instanceof ApiError || error instanceof AddressError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
+      const safe = error instanceof ApiError || error instanceof AddressError || error instanceof OwnerError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
         ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again or contact the booth team.');
       response = json({ error: { code: safe.code, message: safe.message } }, safe.status);
     }
