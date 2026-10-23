@@ -6,7 +6,7 @@ import * as outlookBooking from './booking.mjs';
 import * as internalBooking from './internal-booking.mjs';
 import { AddressError } from './address.mjs';
 import { addressResponse } from './address-response.mjs';
-import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead } from './owner.mjs';
+import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead, markConfirmationDraft } from './owner.mjs';
 import { OwnerAuthError, requireOwner } from './owner-auth.mjs';
 import { selectedSurfaces } from '../public/project-options.js';
 const MAX_PHOTO = 10 * 1024 * 1024;
@@ -477,6 +477,12 @@ async function route(request, env, config, context) {
     return json(await listOwnerLeads(env,new URL(request.url)));
   }
   const adminLead=pathname.match(/^\/api\/admin\/leads\/([^/]+)$/);
+  const adminDraft=pathname.match(/^\/api\/admin\/leads\/([^/]+)\/confirmation-drafts$/);
+  if(adminDraft) {
+    await requireAdmin(request,env);
+    if(method!=='POST')fail(405,'METHOD_NOT_ALLOWED','Use the confirmation draft action.');
+    return json(await markConfirmationDraft(env,adminDraft[1],await readJson(request)));
+  }
   if(adminLead) {
     await requireAdmin(request,env);
     if(method!=='DELETE')fail(405,'METHOD_NOT_ALLOWED','Use the owner lead deletion action.');

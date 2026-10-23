@@ -5,6 +5,7 @@
 import { BookingError, bookingConfiguration as scheduleConfiguration, consultationCandidates,
   validConsultationSlot } from './booking.mjs';
 import { calendarWeekRange } from '../public/calendar-dates.js';
+import { confirmationDraftColumns, confirmationDraftValues } from './confirmation-drafts.mjs';
 export { BookingError } from './booking.mjs';
 
 const CALENDAR_KEY = 'internal:ben.hessler@spray-net.com';
@@ -164,7 +165,7 @@ export async function listAdminSchedule(env, options = {}) {
   const blockWhere=range?'start_at < ? AND end_at > ?':'end_at>=?';
   const bindings=range?[CALENDAR_KEY,range.end,after]:[CALENDAR_KEY,now];
   const [appointments, blocked] = await Promise.all([
-    env.DB.prepare(`SELECT b.*,l.first_name,l.last_name,l.phone,l.email,l.address FROM consultation_bookings b
+    env.DB.prepare(`SELECT b.*,l.first_name,l.last_name,l.phone,l.email,l.address,${confirmationDraftColumns} FROM consultation_bookings b
       JOIN leads l ON l.id=b.lead_id WHERE b.calendar_key=? AND b.status IN ('confirmed','pending') AND ${bookingWhere}
       ORDER BY b.start_at LIMIT 1001`).bind(...bindings).all(),
     env.DB.prepare(`SELECT * FROM booking_time_blocks WHERE calendar_key=? AND ${blockWhere} ORDER BY start_at LIMIT 1001`).bind(...bindings).all(),
@@ -173,7 +174,7 @@ export async function listAdminSchedule(env, options = {}) {
     stop(413, 'SCHEDULE_TOO_LARGE', 'This calendar exceeds the administrator display limit. Ask the operator for a database export.');
   return { timeZone: config.timeZone, provider: 'internal', week:range?.week||null,bufferMinutes:config.bufferMinutes, bookings: appointments.results.map(row => ({ leadId: row.lead_id,
     name: [row.first_name,row.last_name].filter(Boolean).join(' '), phone: row.phone, email: row.email,
-    address: row.address, ...metadata(row) })), blocks: blocked.results.map(row => ({ id: row.id,start: row.start_at,end: row.end_at,note: row.note })) };
+    address: row.address, ...metadata(row),draftVersion:row.transaction_id,confirmationDrafts:confirmationDraftValues(row) })), blocks: blocked.results.map(row => ({ id: row.id,start: row.start_at,end: row.end_at,note: row.note })) };
 }
 export async function createTimeBlock(env, params, options = {}) {
   const config = configured(env), startAt = instant(params?.start,'block start'), endAt = instant(params?.end,'block end'),

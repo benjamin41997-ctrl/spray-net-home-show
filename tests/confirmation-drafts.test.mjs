@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmationEmail, confirmationEmailDraft, confirmationPhone, confirmationText } from '../public/confirmation-email.js';
-import { createConfirmationTools } from '../public/confirmation-tools.js';
+import { createConfirmationTools,updateConfirmationDrafts } from '../public/confirmation-tools.js';
 
 const appointment={name:'Alex Homeowner',phone:'(704) 555-0101',email:'alex+show@example.com',address:'101 Main St, Belmont, NC 28012',
   status:'confirmed',start:'2026-11-08T15:00:00.000Z',end:'2026-11-08T16:30:00.000Z',token:'private-project-token'};
@@ -29,6 +29,15 @@ test('message URIs encode recipients, subject and text without creating extra he
   assert.doesNotMatch(email.href+text.href,/private-project-token/);
 });
 
+test('email includes only the supplied Home Show Deal tiers and leaves signatures and rescheduling text to the owner apps',()=>{
+  const {body}=confirmationEmail(appointment);
+  assert.match(body,/Home Show Deal/);assert.match(body,/kitchen cabinet refinishing/);
+  for(const tier of ['$250 OFF projects from $3,000–$4,999','$500 OFF projects from $5,000–$6,999',
+    '$750 OFF projects from $7,000–$8,999','$1,000 OFF projects of $9,000+'])assert.ok(body.includes(tier));
+  assert.doesNotMatch(body,/black friday|visualiz|free render|reply|reschedul|change your appointment|Ben Hessler|ben.hessler@/i);
+  assert.doesNotMatch(confirmationText(appointment).body,/reply|reschedul|change your appointment/i);
+});
+
 test('SMS normalizes one US number and rejects invalid numbers, multiple recipients and scheme/query injection',()=>{
   for(const value of ['7045550101','704-555-0101','(704) 555-0101','1 704 555 0101','+1 (704) 555-0101'])assert.equal(confirmationPhone(value),'+17045550101');
   for(const value of [null,'','704','+447123456789','++17045550101','7045550101,7045550102','7045550101;7045550102',
@@ -48,7 +57,7 @@ test('iPhone and touch iPad compose links use their separator while Android and 
 
 // Component events execute in an in-memory DOM fixture. No browser, messaging
 // handler or customer endpoint is opened, and no message is sent by these tests.
-function fixture(booking=appointment,clipboard) {
+function fixture(booking=appointment,clipboard,options={}) {
   let permitted=true;
   const document={createElement:tag=>new Element(tag)};
   class Element extends EventTarget {
@@ -63,7 +72,7 @@ function fixture(booking=appointment,clipboard) {
     select(){this.selected=true;}
     set innerHTML(_){throw new Error('Drafts must be inserted as text, never HTML.');}
   }
-  const mount=new Element('main'),root=createConfirmationTools(booking,{document,clipboard,isActive:()=>permitted});
+  const mount=new Element('main'),root=createConfirmationTools(booking,{...options,document,clipboard,isActive:()=>permitted});
   if(root)mount.append(root);
   const all=(node=root)=>node?[node,...node.children.flatMap(child=>all(child))]:[];
   const find=text=>all().find(node=>['button','a'].includes(node.tagName) && node.textContent===text);
@@ -108,4 +117,33 @@ test('stale or signed-out draft controls cannot open apps, copy customer details
   const status=view.all().find(node=>node.getAttribute('role')==='status');assert.equal(status.hidden,true);assert.equal(status.textContent,'');
   assert.equal(view.click(view.find('Draft text')).defaultPrevented,true);assert.equal(view.click(view.find('Draft email')).defaultPrevented,true);
   view.click(view.find('Copy text message'));assert.equal(writes,1);
+});
+
+test('email and text markers save separately, turn gray, survive a rebuilt card, and remain clickable to reopen',async()=>{
+  const saved={email:null,sms:null},channels=[],stamp='2026-10-23T15:30:00.000Z';
+  const view=fixture(appointment,undefined,{onDraft:async channel=>{channels.push(channel);saved[channel]=stamp;return {...saved};}});
+  const email=view.find('Draft email');assert.equal(view.click(email).defaultPrevented,false);assert.match(email.textContent,/saving/);
+  await settle();assert.equal(email.textContent,'Email drafted');assert.match(email.className,/ drafted/);assert.ok(view.find('Draft text'));
+  view.click(view.find('Draft text'));await settle();assert.ok(view.find('Text drafted'));assert.deepEqual(channels,['email','sms']);
+  assert.equal(view.click(email).defaultPrevented,false);await settle();assert.equal(email.textContent,'Email drafted');
+  const restored=fixture({...appointment,confirmationDrafts:saved});assert.ok(restored.find('Email drafted'));assert.ok(restored.find('Text drafted'));
+  assert.ok(restored.all().find(node=>node.className==='confirmation-draft-history').textContent.includes('ET'));
+});
+
+test('saved draft markers can update other visible cards without resetting the other channel',()=>{
+  const view=fixture(appointment);updateConfirmationDrafts(view.root,{email:'2026-10-23T15:30:00.000Z',sms:null});
+  assert.ok(view.find('Email drafted'));assert.ok(view.find('Draft text'));
+  updateConfirmationDrafts(view.root,{sms:'2026-10-23T15:31:00.000Z'});assert.ok(view.find('Email drafted'));assert.ok(view.find('Text drafted'));
+});
+
+test('failed marker writes restore the draft label and report the unsaved status without blocking the compose link',async()=>{
+  const view=fixture(appointment,undefined,{onDraft:async()=>{throw new Error('offline');}}),link=view.find('Draft email');
+  assert.equal(view.click(link).defaultPrevented,false);await settle();assert.equal(link.textContent,'Draft email');
+  assert.doesNotMatch(link.className,/ drafted/);assert.match(view.all().find(node=>node.getAttribute('role')==='status').textContent,/marker could not be saved/);
+});
+
+test('a marker response after sign-out cannot repaint a cleared draft card',async()=>{
+  let finish;const view=fixture(appointment,undefined,{onDraft:()=>new Promise(resolve=>{finish=resolve;})}),link=view.find('Draft text');
+  view.click(link);view.lock();view.detach();const label=link.textContent;
+  finish({sms:'2026-10-23T15:30:00.000Z'});await settle();assert.equal(link.textContent,label);
 });

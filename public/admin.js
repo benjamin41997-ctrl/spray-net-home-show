@@ -1,7 +1,7 @@
 import { safeApiBase } from './lib.js';
 import { createCalendarFile } from './calendar.js';
 import { createOwnerAuth } from './owner-auth.js';
-import { createConfirmationTools } from './confirmation-tools.js';
+import { createConfirmationTools, updateConfirmationDrafts } from './confirmation-tools.js';
 import { mondayOfWeek, addCalendarDays } from './calendar-dates.js';
 import { renderWeekCalendar, calendarWeekLabel, calendarTime, directionsLink, previousConsultation } from './week-calendar.js';
 
@@ -121,16 +121,16 @@ function initializeAdmin() {
     }
     return response;
   }
-  async function request(path, { method = 'GET', body } = {}) {
+  async function request(path, { method = 'GET', body, keepalive=false } = {}) {
     if (!apiBase || !auth) throw new Error('CONNECTION_UNAVAILABLE');
     const generation = state.generation;
-    const controller = new AbortController(); state.controllers.add(controller);
+    const controller = new AbortController();if(!keepalive)state.controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
       const headers = {};
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       const response = await authorizedFetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-        signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' });
+        signal: controller.signal, keepalive,credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' });
       if (generation !== state.generation) throw new Error('SESSION_CLEARED');
       let data;
       try { data = await response.json(); } catch { throw new Error('UNREADABLE_RESPONSE'); }
@@ -163,9 +163,23 @@ function initializeAdmin() {
   }
   function validInstant(value) { return typeof value === 'string' && Number.isFinite(Date.parse(value)); }
   function confirmationTools(appointment) {
-    const generation=state.generation;
+    const generation=state.generation,leadId=appointment.leadId||appointment.id;
     return createConfirmationTools(appointment,{document,device:navigator,clipboard:navigator.clipboard,
-      isActive:()=>state.authenticated && !state.busy && generation===state.generation});
+      isActive:()=>state.authenticated && !state.busy && generation===state.generation,
+      onDraft:async channel=>{
+        if(!state.authenticated||generation!==state.generation)throw new Error('SESSION_CLEARED');
+        // Keep this small, idempotent write alive while the browser hands off to
+        // the mail/SMS app. Logout still prevents late responses changing UI.
+        const data=await request(`/api/admin/leads/${leadId}/confirmation-drafts`,{method:'POST',keepalive:true,
+          body:{channel,draftVersion:appointment.draftVersion,start:appointment.start,end:appointment.end}});
+        if(data.leadId!==leadId||data.draftVersion!==appointment.draftVersion||!data.confirmationDrafts
+          ||!['email','sms'].every(key=>data.confirmationDrafts[key]===null||validInstant(data.confirmationDrafts[key])))throw new Error('INVALID_DRAFT_RESPONSE');
+        for(const root of document.querySelectorAll('[data-confirmation-lead]'))
+          if(root.getAttribute('data-confirmation-lead')===leadId&&root.getAttribute('data-confirmation-version')===appointment.draftVersion)
+            updateConfirmationDrafts(root,data.confirmationDrafts);
+        for(const row of state.calendarData?.bookings||[])if(row.leadId===leadId&&row.draftVersion===appointment.draftVersion)row.confirmationDrafts=data.confirmationDrafts;
+        return data.confirmationDrafts;
+      }});
   }
   function closeCalendarDetail() {
     const dialog=$('#calendar-detail');if(dialog.open)dialog.close();$('#calendar-detail-content').replaceChildren();

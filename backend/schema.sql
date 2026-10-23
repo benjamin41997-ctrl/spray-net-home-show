@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS consultation_bookings (
 );
 CREATE INDEX IF NOT EXISTS consultation_calendar_status_time
   ON consultation_bookings(calendar_key, status, start_at, end_at);
+CREATE TABLE IF NOT EXISTS confirmation_drafts (
+  lead_id TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  booking_transaction_id TEXT NOT NULL,
+  channel TEXT NOT NULL CHECK(channel IN ('email','sms')),
+  drafted_at TEXT NOT NULL,
+  PRIMARY KEY (lead_id,booking_transaction_id,channel)
+);
 CREATE TABLE IF NOT EXISTS booking_calendar_locks (
   calendar_key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,

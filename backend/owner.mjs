@@ -1,5 +1,6 @@
 /** Called only after Worker authentication. No visitor identifiers, tokens,
  * IP addresses or browser fingerprints are exposed by the owner dashboard. */
+import { confirmationDraftColumns, confirmationDraftValues } from './confirmation-drafts.mjs';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STAGES = ['lead_submitted','consultation_requested','booking_pending','consultation_booked','photos_uploaded','visualizations_created','consultation_cancelled'];
 export class OwnerError extends Error {
@@ -62,10 +63,26 @@ export async function recordProjectVisit(env,leadId,body) {
   return {recorded:result.meta.changes === 1};
 }
 
+export async function markConfirmationDraft(env,leadId,body) {
+  if(!UUID.test(leadId)||!body||typeof body!=='object'||Array.isArray(body)||!['email','sms'].includes(body.channel)
+    ||typeof body.draftVersion!=='string'||!body.draftVersion||body.draftVersion.length>128
+    ||typeof body.start!=='string'||typeof body.end!=='string')fail(400,'INVALID_CONFIRMATION_DRAFT','Choose a valid consultation and message channel.');
+  leadId=leadId.toLowerCase();
+  await env.DB.prepare(`INSERT OR IGNORE INTO confirmation_drafts(lead_id,booking_transaction_id,channel,drafted_at)
+    SELECT lead_id,transaction_id,?,? FROM consultation_bookings
+    WHERE lead_id=? AND transaction_id=? AND status='confirmed' AND start_at=? AND end_at=?`)
+    .bind(body.channel,new Date().toISOString(),leadId,body.draftVersion,body.start,body.end).run();
+  const row=await env.DB.prepare(`SELECT b.transaction_id,${confirmationDraftColumns} FROM consultation_bookings b
+    WHERE b.lead_id=? AND b.transaction_id=? AND b.status='confirmed' AND b.start_at=? AND b.end_at=?`)
+    .bind(leadId,body.draftVersion,body.start,body.end).first();
+  if(!row)fail(409,'CONSULTATION_CHANGED','This consultation changed. Refresh the portal before drafting its confirmation.');
+  return {leadId,draftVersion:row.transaction_id,confirmationDrafts:confirmationDraftValues(row)};
+}
+
 const PROGRESS = `WITH progress AS (
   SELECT l.id,l.first_name,l.last_name,l.phone,l.phone_normalized,l.email,l.address,l.city,l.state,l.zip,
     l.event_label,l.capture_mode,l.consultation_preference,l.remaining_renders,l.created_at,
-    b.status AS booking_status,b.start_at AS booking_start,b.end_at AS booking_end,
+    b.status AS booking_status,b.start_at AS booking_start,b.end_at AS booking_end,b.transaction_id AS draft_version,${confirmationDraftColumns},
     (SELECT COUNT(*) FROM photos p WHERE p.lead_id=l.id AND p.status='ready') AS photo_count,
     (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='completed') AS render_count,
     (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='pending') AS pending_render_count,
@@ -107,7 +124,8 @@ export async function listOwnerLeads(env,url) {
     overview:{total:overview.total,booked:overview.booked,needsBooking:overview.needs_booking,visualizerUsed:overview.visualizer_used},
     leads:rows.results.map(row => ({id:row.id,name:`${row.first_name} ${row.last_name}`.trim(),phone:row.phone,email:row.email,
       address:row.address,city:row.city,state:row.state,zip:row.zip,event:row.event_label,captureMode:row.capture_mode,createdAt:row.created_at,
-      stage:row.stage,booking:{status:row.booking_status || 'none',start:row.booking_start || null,end:row.booking_end || null},
+      stage:row.stage,booking:{status:row.booking_status || 'none',start:row.booking_start || null,end:row.booking_end || null,
+        draftVersion:row.draft_version||null,confirmationDrafts:confirmationDraftValues(row)},
       photoCount:row.photo_count,renderCount:row.render_count,pendingRenderCount:row.pending_render_count,remainingRenders:row.remaining_renders,
       visitCount:row.visit_count,lastAccessedAt:row.last_accessed_at || null}))};
 }

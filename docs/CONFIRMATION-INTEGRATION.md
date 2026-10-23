@@ -43,9 +43,22 @@ The sender must fire only after authoritative booking confirmation, never after 
 
 Email subject: **Your Spray-Net consultation is confirmed**
 
-Hi [first name], your Spray-Net South Charlotte consultation is confirmed for [date], [start time]–[end time] Eastern Time at [project address]. We look forward to discussing your project and exclusive home-show rewards. Reply to this email if you need to change your appointment. — Ben Hessler, Spray-Net South Charlotte
+Hi [first name], your Spray-Net South Charlotte consultation is confirmed for [date], [start time]–[end time] Eastern Time at [project address].
 
-Text: **Hi [first name], your Spray-Net South Charlotte consultation is confirmed for [date] at [start time] Eastern Time. Reply if you need to change your appointment. — Ben**
+As a home show attendee, you can take advantage of our **Home Show Deal**: save up to $1,000 on kitchen cabinet refinishing, based on your project value.
+
+- $250 OFF projects from $3,000–$4,999
+- $500 OFF projects from $5,000–$6,999
+- $750 OFF projects from $7,000–$8,999
+- $1,000 OFF projects of $9,000+
+
+We look forward to talking about your project!
+
+No added email signature, visualizer offer or rescheduling line. The owner's mail app supplies their existing signature.
+
+Text: **Hi [first name], your Spray-Net South Charlotte consultation is confirmed for [date], [start time]–[end time] Eastern Time. Address: [project address]. — Ben Hessler**
+
+The owner portal's gray **Email drafted**/**Text drafted** buttons record first compose clicks for the current booking. They are shared private database markers, not delivery confirmations; they do not activate this proposed automatic workflow.
 
 ## Official references
 

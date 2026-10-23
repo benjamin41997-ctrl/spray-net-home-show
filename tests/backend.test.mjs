@@ -243,6 +243,55 @@ test('owner stages reflect authoritative booking, upload and completed render re
   const filtered=await(await request(env,'/api/admin/leads?stage=visualizations_created',{token:env.ADMIN_TOKEN})).json();assert.equal(filtered.total,1);assert.equal(filtered.leads[0].id,people[5].id);
 });
 
+test('manual draft markers are owner-only, separate per channel and persist in both lead and calendar reads',async()=>{
+  const env=environment({BOOKING_PROVIDER:'internal'}),person=await lead(env);confirmBooking(env,person);
+  env.DB.sqlite.prepare('UPDATE consultation_bookings SET calendar_key=? WHERE lead_id=?').run('internal:ben.hessler@spray-net.com',person.id);
+  const booking=env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
+  const path=`/api/admin/leads/${person.id}/confirmation-drafts`,body={channel:'email',draftVersion:booking.transaction_id,start:booking.start_at,end:booking.end_at};
+  for(const token of [undefined,person.token])assert.equal((await request(env,path,{method:'POST',body,token})).status,401);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM confirmation_drafts').get().n,0);
+  const first=await request(env,path,{method:'POST',body,token:env.ADMIN_TOKEN});assert.equal(first.status,200);assert.equal(first.headers.get('cache-control'),'no-store');
+  const saved=await first.json();assert.ok(Date.parse(saved.confirmationDrafts.email));assert.equal(saved.confirmationDrafts.sms,null);
+  const retry=await(await request(env,path,{method:'POST',body,token:env.ADMIN_TOKEN})).json();assert.deepEqual(retry.confirmationDrafts,saved.confirmationDrafts);
+  const text=await(await request(env,path,{method:'POST',body:{...body,channel:'sms'},token:env.ADMIN_TOKEN})).json();
+  assert.equal(text.confirmationDrafts.email,saved.confirmationDrafts.email);assert.ok(Date.parse(text.confirmationDrafts.sms));
+  const leads=await(await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN})).json();
+  const calendar=await(await request(env,'/api/admin/bookings?week=2026-11-02',{token:env.ADMIN_TOKEN})).json();
+  assert.deepEqual(leads.leads[0].booking.confirmationDrafts,text.confirmationDrafts);assert.deepEqual(calendar.bookings[0].confirmationDrafts,text.confirmationDrafts);
+  assert.equal(calendar.bookings[0].draftVersion,booking.transaction_id);assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM confirmation_drafts').get().n,2);
+  const visitor=await(await request(env,`/api/leads/${person.id}/session`,{token:person.token})).json();
+  assert.ok(!JSON.stringify(visitor).includes('confirmationDrafts'));
+});
+
+test('draft markers reject invalid channels and stale/cancelled bookings, and a new booking transaction starts unmarked',async()=>{
+  const env=environment({BOOKING_PROVIDER:'internal'}),person=await lead(env);confirmBooking(env,person);
+  const booking=env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id),path=`/api/admin/leads/${person.id}/confirmation-drafts`;
+  const body={channel:'email',draftVersion:booking.transaction_id,start:booking.start_at,end:booking.end_at};
+  for(const bad of [{...body,channel:'sent'},{...body,channel:'email; DROP TABLE leads'}, {...body,draftVersion:null},[]])
+    assert.equal((await request(env,path,{method:'POST',body:bad,token:env.ADMIN_TOKEN})).status,400);
+  for(const bad of [{...body,draftVersion:'stale'}, {...body,start:'2026-11-02T16:00:00Z'}])assert.equal((await request(env,path,{method:'POST',body:bad,token:env.ADMIN_TOKEN})).status,409);
+  for(const status of ['pending','cancelled']) {
+    env.DB.sqlite.prepare('UPDATE consultation_bookings SET status=? WHERE lead_id=?').run(status,person.id);
+    assert.equal((await request(env,path,{method:'POST',body,token:env.ADMIN_TOKEN})).status,409);
+  }
+  env.DB.sqlite.prepare("UPDATE consultation_bookings SET status='confirmed' WHERE lead_id=?").run(person.id);
+  assert.equal((await request(env,path,{method:'POST',body,token:env.ADMIN_TOKEN})).status,200);
+  env.DB.sqlite.prepare('UPDATE consultation_bookings SET transaction_id=? WHERE lead_id=?').run(crypto.randomUUID(),person.id);
+  const leads=await(await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN})).json();assert.deepEqual(leads.leads[0].booking.confirmationDrafts,{email:null,sms:null});
+  assert.equal((await request(env,path,{method:'POST',body,token:env.ADMIN_TOKEN})).status,409);
+  env.DB.sqlite.prepare('DELETE FROM leads WHERE id=?').run(person.id);assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM confirmation_drafts').get().n,0);
+});
+
+test('confirmation-draft migration is additive and repeatable without inventing old draft activity',async()=>{
+  const env=environment(),person=await lead(env);confirmBooking(env,person);
+  const before=env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id);
+  env.DB.sqlite.exec('DROP TABLE confirmation_drafts;');
+  const migration=readFileSync(new URL('../backend/migrations/0006_confirmation_drafts.sql',import.meta.url),'utf8');
+  env.DB.sqlite.exec(migration);env.DB.sqlite.exec(migration);
+  assert.deepEqual(env.DB.sqlite.prepare('SELECT * FROM consultation_bookings WHERE lead_id=?').get(person.id),before);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM confirmation_drafts').get().n,0);
+});
+
 test('owner search is bound literal text, stages are allowlisted, and pagination reaches every saved lead',async()=>{
   const env=environment({LEADS_PER_IP_HOUR:'1000'});
   for(let index=0;index<51;index++)await lead(env,{...sample(),name:'',firstName:`Visitor ${index}`,phone:`704555${String(index).padStart(4,'0')}`});
