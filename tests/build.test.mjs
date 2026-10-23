@@ -89,3 +89,21 @@ test('invalid public API origins fail before replacing a previous build and priv
     assert.equal(JSON.parse(await readFile(resolve(root, 'dist/asset-manifest.json'), 'utf8')).release, manifest.release);
   }
 });
+
+test('installable app keeps manifest and worker URLs stable and rewrites manifest icons to existing release assets',async t=>{
+  const {root}=await fixture(t);
+  await writeFile(resolve(root,'public/app.webmanifest'),JSON.stringify({name:'Tablet',start_url:'./?mode=tablet',scope:'./',icons:[{src:'./assets/logo.png',sizes:'512x512'}]}));
+  await writeFile(resolve(root,'public/service-worker.js'),"self.addEventListener('fetch',()=>{});");
+  await writeFile(resolve(root,'public/pwa.js'),"const worker=new URL('./service-worker.js',import.meta.url);");
+  const original=await buildSite({projectRoot:root});
+  assert.equal(original.assets['service-worker.js'],undefined);assert.equal(original.assets['app.webmanifest'],undefined);
+  await stat(resolve(root,'dist/service-worker.js'));
+  const manifest=JSON.parse(await readFile(resolve(root,'dist/app.webmanifest'),'utf8'));
+  assert.equal(manifest.start_url,'./?mode=tablet');assert.equal(manifest.scope,'./');
+  assert.equal(manifest.icons[0].src,'./'+original.assets['assets/logo.png']);
+  await stat(resolve(root,'dist',manifest.icons[0].src));
+  assert.ok((await built(root,original,'pwa.js')).includes("new URL('./service-worker.js',import.meta.url)"));
+  await writeFile(resolve(root,'public/service-worker.js'),"self.addEventListener('fetch',()=>{ /* updated */ });");
+  const updated=await buildSite({projectRoot:root});assert.notEqual(updated.release,original.release);
+  assert.equal(updated.assets['service-worker.js'],undefined);await stat(resolve(root,'dist/service-worker.js'));
+});

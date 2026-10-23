@@ -34,6 +34,11 @@ function rewriteReference(reference, from, assets) {
 function rewrite(text, file, assets) {
   const extension = extname(file);
   const ref = value => rewriteReference(value, file, assets);
+  if(extension==='.webmanifest'){
+    const manifest=JSON.parse(text);
+    for(const icon of manifest.icons||[])icon.src=ref(icon.src);
+    return JSON.stringify(manifest,null,2)+'\n';
+  }
   if (extension === '.html') return text.replace(/(\b(?:src|href|poster)\s*=\s*)(['"])(.*?)\2/gi,
     (_, prefix, quote, value) => prefix + quote + ref(value) + quote);
   if (extension === '.css') return text
@@ -65,7 +70,7 @@ export async function buildSite({ projectRoot = project, apiBaseOverride } = {})
   const hash = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url)));
   for (const [file, bytes] of contents) hash.update(file).update('\0').update(bytes).update('\0');
   const release = hash.digest('hex').slice(0, 16), assets = new Map();
-  for (const file of files) if (fingerprinted.has(extname(file))) {
+  for (const file of files) if (fingerprinted.has(extname(file)) && file!=='service-worker.js') {
     const extension = extname(file); assets.set(file, file.slice(0, -extension.length) + `.${release}` + extension);
   }
   // Verify the exact generated output location before removing a prior build.
@@ -75,7 +80,7 @@ export async function buildSite({ projectRoot = project, apiBaseOverride } = {})
   for (const [file, bytes] of contents) {
     const destination = resolve(output, assets.get(file) || file);
     await mkdir(dirname(destination), { recursive: true });
-    await writeFile(destination, ['.html','.css','.js','.mjs'].includes(extname(file)) ? rewrite(bytes.toString('utf8'), file, assets) : bytes);
+    await writeFile(destination, ['.html','.css','.js','.mjs','.webmanifest'].includes(extname(file)) ? rewrite(bytes.toString('utf8'), file, assets) : bytes);
   }
   const manifest = { release, assets: Object.fromEntries(assets) };
   await writeFile(resolve(output, 'asset-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

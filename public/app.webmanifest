@@ -1,0 +1,20 @@
+{
+  "id": "./?app=home-show-tablet",
+  "name": "Spray-Net Home Show",
+  "short_name": "Spray-Net",
+  "description": "Spray-Net South Charlotte home-show lead capture and consultation scheduling.",
+  "lang": "en-US",
+  "start_url": "./?mode=tablet",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#f4f6f6",
+  "theme_color": "#003965",
+  "prefer_related_applications": false,
+  "icons": [
+    {"src": "./assets/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "./assets/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "./assets/app-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

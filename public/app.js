@@ -8,7 +8,7 @@ import { createVisitRecorder } from './visits.js';
 import { VISUALIZER_SURFACES, selectedSurfaces, visitorAppointment } from './project-options.js';
 import { createVisitorStorage } from './visitor-storage.js';
 import { resetTabletSession } from './kiosk.js';
-import { customRenderPrompt } from './render-settings.js';
+import { setupTabletApp } from './pwa.js';
 import { createRenderPreview } from './render-preview.js';
 import { tabletHandoff } from './tablet-handoff.js';
 import { renderBalance } from './render-balance.js';
@@ -16,6 +16,7 @@ const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
 document.body.dataset.mode = mode;
+setupTabletApp({mode,button:$('#install-app'),dialog:$('#install-dialog'),install:$('#install-native'),fullscreen:$('#install-fullscreen'),close:$('#close-install'),status:$('#install-status')});
 let tabStorage,persistentStorage;try{tabStorage=sessionStorage;persistentStorage=localStorage;}catch{}
 const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
@@ -67,7 +68,6 @@ function updateRenderAvailability() {
   $('#remaining-renders').textContent=balance;$$('[data-remaining-renders]').forEach(element=>{element.textContent=balance;});
   $('#create-render').disabled = state.busy || !unlocked() || !state.renderAvailable || !Number.isInteger(state.remaining) || (state.remaining <= 0 && !state.pendingRender);
   $('#photos').disabled = state.busy || !unlocked();
-  $('#custom-prompt').readOnly=state.busy||Boolean(state.pendingRender);
   $('#studio-status').textContent = state.renderAvailable ? 'Your project is saved. Explore a color idea whenever you are ready.' : 'Your consultation is confirmed. Image generation is unavailable right now.';
 }
 function showSaved({ focus = false } = {}) {
@@ -132,7 +132,6 @@ async function restoreSession() {
     message('This saved project is no longer available. You can submit a new request below.');return;
   }
   state.pendingRender = matching?.pendingRender || null; state.completedRender = matching?.completedRender || null;
-  $('#custom-prompt').value=state.pendingRender?.body?.customPrompt||'';
   showSaved();
   if (state.session.booking?.status === 'pending') $('#booking-status').textContent = 'Your appointment is still being verified. Reopen scheduling to check the same request.';
 }
@@ -257,7 +256,7 @@ function resetVisitor() {
   resetTabletSession({mode,url:location.href,history,body:document.body,storage:visitorStorage,reset:clearTabletForm});
 }
 function clearTabletForm() {
-  renderPreview.clear();$('#custom-prompt').value='';
+  renderPreview.clear();
   visits.reset();
   for (const url of [...state.urls]) release(url);
   Object.assign(state, { lead:null, session:null, remaining:null, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
@@ -381,13 +380,13 @@ $('#create-render').addEventListener('click', async () => {
   if (state.busy || !unlocked() || !state.renderAvailable) return;
   if (!state.pendingRender && !state.photos.length) {message('Add a photo of your home or cabinets first.');return;}
   if (!state.pendingRender && state.remaining <= 0) {message('You’ve used your free visualizations. Our team can help explore more ideas.');return;}
-  let surfaces,customPrompt;
-  try {if(!state.pendingRender){surfaces=selectedSurfaces($$('#surface-options input:checked').map(input=>input.value));customPrompt=customRenderPrompt($('#custom-prompt').value);}}
+  let surfaces;
+  try {if(!state.pendingRender)surfaces=selectedSurfaces($$('#surface-options input:checked').map(input=>input.value));}
   catch(error){message(error.message);$('#surface-options input').focus();return;}
   state.busy = true; const button = $('#create-render'), status = $('#render-status'); setBusy(button,true,'Creating your new look…');updateRenderAvailability();message();
   try {
     if (!state.pendingRender) {const photo = state.photos[state.selectedPhoto], color = COLORS[state.color]; await uploadPhoto(photo);studioPhotos();
-      state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surfaces,customPrompt},color:customPrompt?{...color,name:'Custom preview'}:color}; saveSession({pendingRender:state.pendingRender});}
+      state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surfaces},color}; saveSession({pendingRender:state.pendingRender});}
     const pending = state.pendingRender; status.textContent = 'Creating your visualization. This can take a couple of minutes. Keep this page open.';
     let result = await request(`/api/leads/${state.lead.id}/renders`,{method:'POST',body:pending.body,token:state.lead.token,headers:{'Idempotency-Key':pending.key},timeout:240000});
     for (let n=0;n<30 && result.status === 'pending';n++) {await new Promise(resolve => setTimeout(resolve,2500));result = await request(`/api/leads/${state.lead.id}/renders/${result.id}`,{token:state.lead.token});}

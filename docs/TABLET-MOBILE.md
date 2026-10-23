@@ -10,6 +10,8 @@ The two one-page layouts share one private backend:
 
 Mobile is the default. See [deployment status](DEPLOYMENT.md) before assuming current source is live. **No Microsoft/Entra access is required** for internal scheduling.
 
+For an installed booth app, use **Install tablet app** in the tablet footer or the browser's home-screen installation menu, then launch its icon. It always starts in tablet mode, requests fullscreen with standalone fallback, and needs internet. Installed apps hide the installation control. [Android/iPad installation steps](INSTALL-APP.md).
+
 ## Capture, then schedule
 
 Both initially require only **name and phone**. Email/address are optional for lead capture; **both a valid email and project address are required for consultation booking**, in the form and server. Saving a lead offers scheduling to unlock photos and visualizer. Only the backend-confirmed internal appointment unlocks; a contact preference/copied link does not.

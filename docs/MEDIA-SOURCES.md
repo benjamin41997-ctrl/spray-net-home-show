@@ -10,6 +10,7 @@ The page reuses assets from the user's existing `spray-net-portfolio` project. N
 | `public/assets/siding-after.webp` | Optimized `blue-engineered-wood` after image from the existing portfolio; displayed with the cabinet and masonry after images in the tablet's bottom row. |
 | `public/assets/logo.png` | Existing Spray-Net logo, copied unchanged. |
 | `public/assets/favicon.png` | Existing portfolio favicon. |
+| `public/assets/app-icon-192.png`, `app-icon-512.png`, `app-icon-maskable-512.png`, `apple-touch-icon.png` | Existing logo's circular Spray-Net mark, cropped/resized on white for home-screen icon sizes and maskable safe padding. |
 | `public/assets/Lato-Regular.ttf` | Existing portfolio Lato font file. |
 | `public/assets/Lato-Black.ttf` | Existing portfolio Lato font file. |
 | `public/assets/OFL.txt` | Copied font license; retained alongside the fonts. |

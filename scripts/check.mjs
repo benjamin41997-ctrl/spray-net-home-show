@@ -35,12 +35,16 @@ for (const file of files) {
     const checked = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
     if (checked.status !== 0) failures.push(`${relative(root, file)}: ${checked.stderr.trim()}`);
   }
-  if (!['.js', '.mjs', '.html', '.css', '.json', '.jsonc', '.yml', '.md', '.sql', '.example'].includes(extension)) continue;
+  if (!['.js', '.mjs', '.html', '.css', '.json', '.jsonc', '.webmanifest', '.yml', '.md', '.sql', '.example'].includes(extension)) continue;
   const contents = await readFile(file, 'utf8');
   if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{30,}\b|\bgh[pousr]_[A-Za-z0-9]{30,}\b/.test(contents)) {
     failures.push(`${relative(root, file)}: possible committed private key or API credential`);
   }
   if (!file.startsWith(publicRoot + sep)) continue;
+  if(extension==='.webmanifest'){
+    try{const manifest=JSON.parse(contents);for(const icon of manifest.icons||[])await localReference(icon.src,file);}
+    catch{failures.push(`${relative(root,file)}: invalid web app manifest`);}
+  }
   if (/\b(?:OPENAI_API_KEY|RENDER_API_KEY|ADMIN_TOKEN|RATE_LIMIT_SALT|MICROSOFT_CLIENT_SECRET|MICROSOFT_REFRESH_TOKEN|MICROSOFT_ACCESS_TOKEN|OUTLOOK_ACCESS_TOKEN)\s*[:=]\s*['"][^'"]+['"]/.test(contents)) {
     failures.push(`${relative(root, file)}: private server configuration in public files`);
   }

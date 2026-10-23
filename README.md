@@ -17,7 +17,9 @@ The internal calendar does not read/sync Outlook or automatically send messages.
 
 Both contact forms support native browser autofill and local address suggestions using public NCOneMap, York County SC, and Lancaster County SC data. Only name and phone are required for a lead; address and email have no extra label. A selected address saves its city, state, and ZIP as separate CRM fields. Suggestions need no paid API account or key, and manual entry always works. See [address coverage and sources](docs/ADDRESS-AUTOCOMPLETE.md).
 
-The visualizer supports custom color/finish instructions and opens new results in a large Save image/Back to editing preview. Saved results can be viewed larger without spending another credit. [Visualizer behavior and current cost estimate](docs/VISUALIZER.md).
+The visualizer uses photo, color and surface choices, with no custom-prompt field. New results open in a large Save image/Back to editing preview. Saved results can be viewed larger without spending another credit. [Visualizer behavior and current cost estimate](docs/VISUALIZER.md).
+
+The site installs as a tablet app, with branded home-screen icons and a public `?mode=tablet` launch. Use **Install tablet app** in the tablet footer, or the browser's installation menu. Supported devices use fullscreen, with standalone web-app view as a fallback. No customer data or app shell is cached by its service worker; internet is still required. [Installation steps](docs/INSTALL-APP.md).
 
 Private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. The tablet's existing QR displays this private handoff while a visitor is active. No automatic project-link email/SMS or magic-link service is included.
 
