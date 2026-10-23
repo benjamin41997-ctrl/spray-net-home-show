@@ -63,9 +63,9 @@ test('separate phone browsers keep unfinished submissions and saved access indep
   assert.deepEqual(a.read().lead,lead);assert.deepEqual(b.read().pendingLead,pendingB);assert.equal(c.read(),null);
   b.clear();assert.deepEqual(a.read().lead,lead);assert.equal(c.read(),null);
 });
-test('owner confirmation action prepares a one-hour email draft without sending, adding a private project token, or allowing header injection',()=>{
+test('owner confirmation action prepares a start-time-only email draft without sending, adding a private project token, or allowing header injection',()=>{
   const url=new URL(confirmationEmailDraft({name:'Alex Homeowner',email:'alex@example.com',address:'101 Main Street, Belmont, NC',start:'2026-11-08T15:00:00.000Z',end:'2026-11-08T16:30:00.000Z'}));
-  assert.equal(url.protocol,'mailto:');assert.match(url.searchParams.get('body'),/10:00 AM–11:00 AM Eastern/);
+  assert.equal(url.protocol,'mailto:');assert.match(url.searchParams.get('body'),/at 10:00 AM is confirmed/);assert.doesNotMatch(url.searchParams.get('body'),/11:00 AM|Eastern/);
   assert.match(url.searchParams.get('body'),/Home Show Deal/);assert.doesNotMatch(url.searchParams.get('body'),/ben.hessler@spray-net.com/);assert.doesNotMatch(url.href,/studio=|token|bcc=/i);
   assert.throws(()=>confirmationEmailDraft({email:'alex@example.com\r\nBcc:private@example.com'}));
 });

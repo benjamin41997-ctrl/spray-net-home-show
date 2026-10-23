@@ -26,7 +26,7 @@ Click an unavailable block to inspect its private note or remove it. Expand **Ma
 
 ## Send confirmation from your phone
 
-Open the owner portal on your phone and sign in with your existing review-portal account. Confirmed appointments have **Draft email** and **Draft text** on both the lead card and Calendar card. Each draft includes the customer's first name, saved project address, Eastern date and one-hour customer appointment time.
+Open the owner portal on your phone and sign in with your existing review-portal account. Confirmed appointments have **Draft email** and **Draft text** on both the lead card and Calendar card. Each draft includes the customer's first name, saved project address, appointment date and start time. Times are calculated using America/New_York internally, but the messages include no end time, duration or timezone label.
 
 - **Draft email:** opens your configured email app with the recipient, subject and message. Choose **ben.hessler@spray-net.com** as the sender, review and send. A website mail link cannot choose the From account or authorize that mailbox. If needed, open Outlook yourself and copy the recipient, subject and message below the buttons.
 - **Draft text:** opens your phone's messaging app with the customer's number and a prepared confirmation. Send from your personal/default line, or choose the line you want on a dual-SIM phone. The website does not need your personal phone number, a texting API key, or HighLevel editing access.

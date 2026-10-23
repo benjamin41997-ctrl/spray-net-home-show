@@ -6,14 +6,14 @@ import { createConfirmationTools,updateConfirmationDrafts } from '../public/conf
 const appointment={name:'Alex Homeowner',phone:'(704) 555-0101',email:'alex+show@example.com',address:'101 Main St, Belmont, NC 28012',
   status:'confirmed',start:'2026-11-08T15:00:00.000Z',end:'2026-11-08T16:30:00.000Z',token:'private-project-token'};
 
-test('email and SMS drafts agree on Eastern date and one-hour customer times on both sides of DST',()=>{
+test('email and SMS show the correct local appointment start across DST without a duration, end time or timezone label',()=>{
   for(const [start,end,date] of [['2026-10-26T14:00:00.000Z','2026-10-26T15:30:00.000Z','October 26, 2026'],
     ['2026-11-08T15:00:00.000Z','2026-11-08T16:30:00.000Z','November 8, 2026']]) {
     const booking={...appointment,start,end},email=confirmationEmail(booking),text=confirmationText(booking);
     assert.match(email.body,/Hi Alex,/);assert.ok(email.body.includes(date));
     for(const draft of [email,text]) {
-      assert.match(draft.body,/10:00 AM–11:00 AM Eastern Time/);assert.ok(draft.body.includes(booking.address));
-      assert.doesNotMatch(draft.body,/private-project-token|90.minute|travel|buffer/i);
+      assert.match(draft.body,/at 10:00 AM is confirmed/);assert.ok(draft.body.includes(booking.address));
+      assert.doesNotMatch(draft.body,/11:00 AM|Eastern|time zone|one.hour|1.hour|60.minute|private-project-token|90.minute|travel|buffer/i);
     }
     assert.equal(booking.end,end);
   }

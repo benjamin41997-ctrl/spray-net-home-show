@@ -8,6 +8,8 @@ import { createVisitRecorder } from './visits.js';
 import { VISUALIZER_SURFACES, selectedSurfaces, visitorAppointment } from './project-options.js';
 import { createVisitorStorage } from './visitor-storage.js';
 import { resetTabletSession } from './kiosk.js';
+import { customRenderPrompt } from './render-settings.js';
+import { createRenderPreview } from './render-preview.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
@@ -17,7 +19,7 @@ const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
 if (location.hash.startsWith('#studio=')) history.replaceState(null, '', location.pathname + location.search);
 const state = { lead: null, session: null, ready: false, renderAvailable: false, busy: false, remaining: 3,
-  photos: [], selectedPhoto: 0, color: 0, urls: new Set(), shownResults: new Set(), slots: [], day: '', selectedSlot: '',
+  photos: [], selectedPhoto: 0, color: 0, urls: new Set(), shownResults: new Map(), slots: [], day: '', selectedSlot: '',
   pendingLead: null, pendingBooking: null, pendingRender: null, completedRender: null, savedMedia: null, loadedMediaFor: null, mediaLoadAccess: null };
 let apiBase = '';
 const lookupAddress = (query,options) => requestAddressSuggestions(apiBase,query,options);
@@ -36,6 +38,7 @@ function setBusy(button, busy, label) {
 function objectUrl(blob) { const url = URL.createObjectURL(blob); state.urls.add(url); return url; }
 function release(url) { URL.revokeObjectURL(url); state.urls.delete(url); }
 function unlocked() { return state.session?.visualizerUnlocked === true && state.session?.booking?.status === 'confirmed'; }
+const renderPreview=createRenderPreview($('#render-preview'),{isActive:()=>unlocked(),onEdit:()=>$('.colors-fieldset').scrollIntoView({block:'start',behavior:'smooth'})});
 async function request(path, { method = 'GET', body, token, headers = {}, timeout = 30000, signal } = {}) {
   if (!apiBase) throw new Error('Live submissions are unavailable. Please speak with our booth team.');
   const options = { method, headers: { ...headers }, signal: signal || AbortSignal.timeout(timeout) };
@@ -54,9 +57,11 @@ function updateRenderAvailability() {
   $('#remaining-renders').textContent = String(state.remaining);
   $('#create-render').disabled = state.busy || !unlocked() || !state.renderAvailable || (state.remaining <= 0 && !state.pendingRender);
   $('#photos').disabled = state.busy || !unlocked();
+  $('#custom-prompt').readOnly=state.busy||Boolean(state.pendingRender);
   $('#studio-status').textContent = state.renderAvailable ? 'Your project is saved. Explore a color idea whenever you are ready.' : 'Your consultation is confirmed. Image generation is unavailable right now.';
 }
 function showSaved({ focus = false } = {}) {
+  renderPreview.clear();
   void visits.record(state.lead);
   $('#lead-panel').hidden = true; $('#page-intro').hidden = true; $('#saved-panel').hidden = false; $('#studio').hidden = true;
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
@@ -116,6 +121,7 @@ async function restoreSession() {
     message('This saved project is no longer available. You can submit a new request below.');return;
   }
   state.pendingRender = matching?.pendingRender || null; state.completedRender = matching?.completedRender || null;
+  $('#custom-prompt').value=state.pendingRender?.body?.customPrompt||'';
   showSaved();
   if (state.session.booking?.status === 'pending') $('#booking-status').textContent = 'Your appointment is still being verified. Reopen scheduling to check the same request.';
 }
@@ -240,6 +246,7 @@ function resetVisitor() {
   resetTabletSession({mode,url:location.href,history,body:document.body,storage:visitorStorage,reset:clearTabletForm});
 }
 function clearTabletForm() {
+  renderPreview.clear();$('#custom-prompt').value='';
   visits.reset();
   for (const url of [...state.urls]) release(url);
   Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
@@ -287,15 +294,24 @@ async function fetchPrivateImage(path) {
   const blob = await response.blob(); if (!blob.type.startsWith('image/')) throw new Error('This image could not be displayed.');
   if (!sameStudioAccess(access,state.lead)) throw new Error('This project has been cleared.'); return objectUrl(blob);
 }
-async function showRender(result,color) {
-  if (state.shownResults.has(result.id)) return;
+function presentRender(view) {
+  view.figure.scrollIntoView({block:'start',behavior:'instant'});view.figure.focus({preventScroll:true});renderPreview.show(view);
+}
+async function showRender(result,color,{present=false}={}) {
+  if (state.shownResults.has(result.id)) {if(present)presentRender(state.shownResults.get(result.id));return;}
   const access = state.lead, url = await fetchPrivateImage(result.imageUrl);
   if (!sameStudioAccess(access,state.lead)) { release(url); return; }
-  const figure = document.createElement('figure'); figure.className = 'render-result';
-  const img = document.createElement('img'); img.src = url; img.alt = `AI color visualization in ${color.name}`;
-  const caption = document.createElement('figcaption'), text = document.createElement('span'), download = document.createElement('a');
-  text.textContent = `${color.name} · AI visualization`; download.href = url; download.download = `spray-net-${color.name.toLowerCase().replaceAll(' ','-')}.jpg`; download.textContent = 'Save image ↓';
-  caption.append(text,download); figure.append(img,caption); $('#render-results').prepend(figure); state.shownResults.add(result.id);
+  const figure = document.createElement('figure'); figure.className = 'render-result';figure.tabIndex=-1;
+  const label=`${color.name} · AI visualization`,filename=`spray-net-visualization-${String(result.id).replace(/[^a-z0-9-]/gi,'').slice(0,36)}.jpg`;
+  const img = document.createElement('img'); img.src = url; img.alt = label;
+  try{await img.decode();}catch{release(url);throw new Error('Your visualization was saved, but the picture could not load. Use Retrieve my completed image to try again.');}
+  if(!sameStudioAccess(access,state.lead)){release(url);return;}
+  const caption = document.createElement('figcaption'), text = document.createElement('span'), download = document.createElement('a'),larger=document.createElement('button');
+  text.textContent=label;download.href=url;download.download=filename;download.textContent='Save image ↓';
+  larger.type='button';larger.className='render-view-button';larger.textContent='View larger';
+  const view={figure,url,label,filename};larger.addEventListener('click',()=>{if(sameStudioAccess(access,state.lead)&&unlocked())presentRender(view);});
+  caption.append(text,larger,download);figure.append(img,caption);$('#render-results').prepend(figure);state.shownResults.set(result.id,view);
+  if(present)presentRender(view);
 }
 async function loadSavedStudioMedia() {
   if (!unlocked() || !state.savedMedia || sameStudioAccess(state.loadedMediaFor,state.lead)) return;
@@ -353,13 +369,13 @@ $('#create-render').addEventListener('click', async () => {
   if (state.busy || !unlocked() || !state.renderAvailable) return;
   if (!state.pendingRender && !state.photos.length) {message('Add a photo of your home or cabinets first.');return;}
   if (!state.pendingRender && state.remaining <= 0) {message('You’ve used your free visualizations. Our team can help explore more ideas.');return;}
-  let surfaces;
-  try {if(!state.pendingRender)surfaces=selectedSurfaces($$('#surface-options input:checked').map(input=>input.value));}
+  let surfaces,customPrompt;
+  try {if(!state.pendingRender){surfaces=selectedSurfaces($$('#surface-options input:checked').map(input=>input.value));customPrompt=customRenderPrompt($('#custom-prompt').value);}}
   catch(error){message(error.message);$('#surface-options input').focus();return;}
-  state.busy = true; const button = $('#create-render'), status = $('#render-status'); setBusy(button,true,'Creating your new look…'); message();
+  state.busy = true; const button = $('#create-render'), status = $('#render-status'); setBusy(button,true,'Creating your new look…');updateRenderAvailability();message();
   try {
     if (!state.pendingRender) {const photo = state.photos[state.selectedPhoto], color = COLORS[state.color]; await uploadPhoto(photo);studioPhotos();
-      state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surfaces},color}; saveSession({pendingRender:state.pendingRender});}
+      state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surfaces,customPrompt},color:customPrompt?{...color,name:'Custom preview'}:color}; saveSession({pendingRender:state.pendingRender});}
     const pending = state.pendingRender; status.textContent = 'Creating your visualization. This can take a couple of minutes. Keep this page open.';
     let result = await request(`/api/leads/${state.lead.id}/renders`,{method:'POST',body:pending.body,token:state.lead.token,headers:{'Idempotency-Key':pending.key},timeout:240000});
     for (let n=0;n<30 && result.status === 'pending';n++) {await new Promise(resolve => setTimeout(resolve,2500));result = await request(`/api/leads/${state.lead.id}/renders/${result.id}`,{token:state.lead.token});}
@@ -368,13 +384,13 @@ $('#create-render').addEventListener('click', async () => {
     state.pendingRender = null;saveSession({pendingRender:null});
     if (result.status === 'failed') throw new Error(result.error?.message || 'The visualization did not finish. Your credit has been restored.');
     state.completedRender = {result,color:pending.color};saveSession({completedRender:state.completedRender});$('#retry-image').hidden = false;
-    await showRender(result,pending.color); state.completedRender = null;saveSession({completedRender:null});$('#retry-image').hidden = true;status.textContent = 'Your new look is ready. Save the image or try another color.';
+    await showRender(result,pending.color,{present:true}); state.completedRender = null;saveSession({completedRender:null});$('#retry-image').hidden = true;status.textContent = 'Your new look is ready. Save the image or try another color.';
   } catch (e) { if ([400,404].includes(e.status)) {state.pendingRender = null;saveSession({pendingRender:null});} status.textContent = '';await handleStudioError(e);}
   finally {state.busy = false;setBusy(button,false);updateRenderAvailability();}
 });
 $('#retry-image').addEventListener('click', async () => {
   if (state.busy || !unlocked() || !state.completedRender) return; state.busy = true; const button = $('#retry-image');setBusy(button,true,'Retrieving image…');
-  try {await showRender(state.completedRender.result,state.completedRender.color);state.completedRender = null;saveSession({completedRender:null});button.hidden = true;message();}
+  try {await showRender(state.completedRender.result,state.completedRender.color,{present:true});state.completedRender = null;saveSession({completedRender:null});button.hidden = true;message();}
   catch (e) {await handleStudioError(e);}finally {state.busy = false;setBusy(button,false);updateRenderAvailability();}
 });
 const privacy = $('#privacy-dialog');

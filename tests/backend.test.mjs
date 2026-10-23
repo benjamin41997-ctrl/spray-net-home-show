@@ -972,6 +972,29 @@ test('multiple selected surfaces reach the rendering adapter together and consum
   assert.equal(calls,1);assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders,2);
 });
 
+test('custom refinishing instructions reach the adapter and count as part of retry identity without extra credits',async()=>{
+  const env=environment(),person=await lead(env),uploaded=await photo(env,person);let calls=0;
+  const body={...settings(uploaded.id),surfaces:['Cabinets'],customPrompt:'Warm white upper cabinets, navy lower cabinets. Keep the wood grain.'};
+  await withFetch(async(url,init)=>{calls++;assert.equal(JSON.parse(init.body).custom_prompt,body.customPrompt);return renderedResponse();},async()=>{
+    const options={method:'POST',body,token:person.token,key:'custom-instructions-key'};
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,options)).status,201);
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,{...options,body:{...body,customPrompt:' '+body.customPrompt+'\r\n'}})).status,200);
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,{...options,body:{...body,customPrompt:'Make them green instead.'}})).status,409);
+    for(const customPrompt of ['x'.repeat(1001),{},'white\u0000navy'])assert.equal((await request(env,`/api/leads/${person.id}/renders`,{...options,body:{...body,customPrompt},key:crypto.randomUUID()})).status,400);
+  });
+  assert.equal(calls,1);const row=env.DB.sqlite.prepare('SELECT remaining_renders FROM leads WHERE id=?').get(person.id);assert.equal(row.remaining_renders,2);
+  assert.equal(env.DB.sqlite.prepare('SELECT color_name FROM renders WHERE lead_id=?').get(person.id).color_name,'Custom preview');
+});
+
+test('empty custom instructions preserve old render retry identity',async()=>{
+  const env=environment(),person=await lead(env),uploaded=await photo(env,person);let calls=0;
+  await withFetch(async()=>{calls++;return renderedResponse();},async()=>{
+    const options={method:'POST',body:settings(uploaded.id),token:person.token,key:'legacy-custom-empty-key'};
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,options)).status,201);
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,{...options,body:{...options.body,customPrompt:'  \r\n '}})).status,200);
+  });assert.equal(calls,1);
+});
+
 test('idempotency avoids a second paid call, pending retry is safe, mismatched reuse fails', async () => {
   const env = environment(), person = await lead(env), uploaded = await photo(env, person); let finish, calls = 0;
   let announceStarted;
@@ -1100,6 +1123,11 @@ test('renderer adapter uses server secrets and validates inline output; no URL f
     assert.doesNotMatch(init.body.get('prompt'), /exterior repaint/);
     assert.equal(init.headers.Authorization, 'Bearer server-only-openai-key');
     return new Response(JSON.stringify({ data: [{ b64_json: base64Jpeg }] }));
+  });
+  await callRenderer(openai,{bytes:jpeg,mime:'image/jpeg'},{...settings('photo'),surface:'Cabinets',customPrompt:'White uppers; navy lowers.'},async(url,init)=>{
+    assert.match(init.body.get('prompt'),/White uppers; navy lowers\./);assert.match(init.body.get('prompt'),/taking precedence over the default color/);
+    assert.match(init.body.get('prompt'),/Preserve the exact scene geometry/);assert.equal(init.body.get('quality'),'low');assert.equal(init.body.get('size'),'1024x1024');
+    return new Response(JSON.stringify({data:[{b64_json:base64Jpeg}]}));
   });
 });
 

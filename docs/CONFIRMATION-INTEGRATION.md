@@ -43,7 +43,9 @@ The sender must fire only after authoritative booking confirmation, never after 
 
 Email subject: **Your Spray-Net consultation is confirmed**
 
-Hi [first name], your Spray-Net South Charlotte consultation is confirmed for [date], [start time]–[end time] Eastern Time at [project address].
+Hi [first name], your Spray-Net South Charlotte consultation on [date] at [start time] is confirmed.
+
+Project address: [project address]
 
 As a home show attendee, you can take advantage of our **Home Show Deal**: save up to $1,000 on kitchen cabinet refinishing, based on your project value.
 
@@ -56,7 +58,9 @@ We look forward to talking about your project!
 
 No added email signature, visualizer offer or rescheduling line. The owner's mail app supplies their existing signature.
 
-Text: **Hi [first name], your Spray-Net South Charlotte consultation is confirmed for [date], [start time]–[end time] Eastern Time. Address: [project address]. — Ben Hessler**
+Text: **Hi [first name], your Spray-Net South Charlotte consultation on [date] at [start time] is confirmed. Address: [project address]. — Ben Hessler**
+
+Format the start using America/New_York internally, including DST, but include no end time, duration or timezone label in either customer message. Internal reservations, travel buffers and calendar files retain their existing timing.
 
 The owner portal's gray **Email drafted**/**Text drafted** buttons record first compose clicks for the current booking. They are shared private database markers, not delivery confirmations; they do not activate this proposed automatic workflow.
 

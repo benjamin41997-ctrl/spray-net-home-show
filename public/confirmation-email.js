@@ -19,7 +19,7 @@ function messageDetails(appointment) {
   const time=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'});
   return {greeting:oneLine(appointment.name).split(' ')[0]||'there',address:oneLine(appointment.address),
     date:date.format(new Date(visit.start)),shortDate:shortDate.format(new Date(visit.start)),
-    time:`${time.format(new Date(visit.start))}–${time.format(new Date(visit.end))}`};
+    time:time.format(new Date(visit.start))};
 }
 
 /** Draft content stays on the owner device. Neither function sends a message. */
@@ -28,7 +28,7 @@ export function confirmationEmail(appointment) {
     || /[\u0000-\u001f\u007f]/.test(appointment.email))throw new TypeError('A valid customer email is required.');
   const {greeting,date,time,address}=messageDetails(appointment);
   const to=appointment.email,subject='Your Spray-Net consultation is confirmed';
-  const body=`Hi ${greeting},\n\nYour Spray-Net South Charlotte consultation is confirmed for ${date}, ${time} Eastern Time.${address?`\n\nProject address: ${address}`:''}\n\nAs a home show attendee, you can take advantage of our Home Show Deal: save up to $1,000 on kitchen cabinet refinishing, based on your project value.\n\n$250 OFF projects from $3,000–$4,999\n$500 OFF projects from $5,000–$6,999\n$750 OFF projects from $7,000–$8,999\n$1,000 OFF projects of $9,000+\n\nWe look forward to talking about your project!`;
+  const body=`Hi ${greeting},\n\nYour Spray-Net South Charlotte consultation on ${date} at ${time} is confirmed.${address?`\n\nProject address: ${address}`:''}\n\nAs a home show attendee, you can take advantage of our Home Show Deal: save up to $1,000 on kitchen cabinet refinishing, based on your project value.\n\n$250 OFF projects from $3,000–$4,999\n$500 OFF projects from $5,000–$6,999\n$750 OFF projects from $7,000–$8,999\n$1,000 OFF projects of $9,000+\n\nWe look forward to talking about your project!`;
   return {to,subject,body,href:`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`};
 }
 
@@ -36,7 +36,7 @@ export function confirmationEmail(appointment) {
  * Some handlers ignore bodies, so the owner UI always offers a copy fallback. */
 export function confirmationText(appointment,device={}) {
   const to=confirmationPhone(appointment?.phone),{greeting,shortDate,time,address}=messageDetails(appointment);
-  const body=`Hi ${greeting}, your Spray-Net South Charlotte consultation is confirmed for ${shortDate}, ${time} Eastern Time.${address?` Address: ${address}.`:''} - Ben Hessler`;
+  const body=`Hi ${greeting}, your Spray-Net South Charlotte consultation on ${shortDate} at ${time} is confirmed.${address?` Address: ${address}.`:''} - Ben Hessler`;
   const ios=/iPad|iPhone|iPod/.test(device.userAgent||'') || (device.platform==='MacIntel' && device.maxTouchPoints>1);
   return {to,body,href:`sms:${to}${ios?'&':'?'}body=${encodeURIComponent(body)}`};
 }

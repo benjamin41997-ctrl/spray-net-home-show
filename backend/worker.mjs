@@ -9,6 +9,7 @@ import { addressResponse } from './address-response.mjs';
 import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead, markConfirmationDraft } from './owner.mjs';
 import { OwnerAuthError, requireOwner } from './owner-auth.mjs';
 import { selectedSurfaces } from '../public/project-options.js';
+import { customRenderPrompt } from '../public/render-settings.js';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -325,13 +326,14 @@ export async function callRenderer(env, photo, settings, fetcher = fetch) {
       init = { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RENDER_API_KEY}` },
         body: JSON.stringify({ image_base64: bytesToBase64(photo.bytes), mime_type: photo.mime,
           color_name: settings.colorName, color_hex: settings.colorHex, surface: settings.surface,
-          ...(settings.surfaces?{surfaces:settings.surfaces}:{}) }) };
+          ...(settings.surfaces?{surfaces:settings.surfaces}:{}),...(settings.customPrompt?{custom_prompt:settings.customPrompt}:{}) }) };
     } else if (!config.customRequested && env.OPENAI_API_KEY) {
       url = 'https://api.openai.com/v1/images/edits';
       const body = new FormData();
       body.append('image[]', new Blob([photo.bytes], { type: photo.mime }), `home.${photo.mime.split('/')[1]}`);
       body.append('model', env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5');
-      body.append('prompt', `Create a realistic surface-refinishing color visualization of the supplied home or interior photo. Change only the ${settings.surface} to ${settings.colorName}, approximately ${settings.colorHex}. Apply this color to every selected surface that is visible. For windows, recolor only the frames and trim, preserving the glass. Preserve the exact scene geometry, perspective, layout, fixtures, architecture, surroundings, lighting and all other surfaces. Preserve shadows and material texture. No text, labels, logo or watermark. This is a color concept, not a construction plan.`);
+      const custom=customRenderPrompt(settings.customPrompt);
+      body.append('prompt', `Create a realistic surface-refinishing color visualization of the supplied home or interior photo. Change only the ${settings.surface} to ${settings.colorName}, approximately ${settings.colorHex}. Apply this color to every selected surface that is visible, unless the homeowner requests different colors or finishes for those selected surfaces below. For windows, recolor only the frames and trim, preserving the glass. Preserve the exact scene geometry, perspective, layout, fixtures, architecture, surroundings, lighting and all other surfaces. Preserve shadows and material texture. No text, labels, logo or watermark. This is a color concept, not a construction plan.${custom?`\n\nHomeowner refinishing preferences (apply within the selected surfaces, with specific requested colors/finishes taking precedence over the default color):\n${JSON.stringify(custom)}`:''}`);
       body.append('n', '1'); body.append('quality', 'low'); body.append('size', '1024x1024'); body.append('output_format', 'jpeg');
       init = { method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, body };
     } else fail(503, 'RENDER_UNAVAILABLE', 'Photo previews are not enabled yet. Your project details are saved.');
@@ -369,9 +371,13 @@ async function createRender(request, env, config, lead) {
   const photoId = text(body.photoId, 'photo', 36), colorName = text(body.colorName, 'color name', 80),
     colorHex = text(body.colorHex, 'color', 7), surface = surfaces?surfaces.join(', '):text(body.surface, 'surface', 80);
   if (!UUID.test(photoId) || !/^#[0-9a-f]{6}$/i.test(colorHex)) fail(400, 'INVALID_SETTINGS', 'Check your photo and color selection.');
+  let customPrompt;try{customPrompt=customRenderPrompt(body.customPrompt);}catch(error){fail(400,'INVALID_SETTINGS',error.message);}
   const requestKey = request.headers.get('Idempotency-Key');
   if (!requestKey || !/^[\w-]{8,128}$/.test(requestKey)) fail(400, 'IDEMPOTENCY_REQUIRED', 'A unique preview request key is required.');
-  const inputHash = await hash(JSON.stringify([photoId, colorName, colorHex.toUpperCase(), surface]));
+  // Keep the legacy hash for empty instructions so pending pre-update requests
+  // can still be retried without a second paid provider call.
+  const inputs=[photoId,colorName,colorHex.toUpperCase(),surface];if(customPrompt)inputs.push(customPrompt);
+  const inputHash = await hash(JSON.stringify(inputs));
   await settleStale(env, lead.id);
   const existing = await env.DB.prepare('SELECT * FROM renders WHERE lead_id=? AND request_key=?').bind(lead.id, requestKey).first();
   if (existing) {
@@ -387,7 +393,7 @@ async function createRender(request, env, config, lead) {
     await env.DB.prepare(`INSERT INTO renders
       (id,lead_id,photo_id,request_key,input_hash,status,day,daily_limit,color_name,color_hex,surface,created_at,updated_at)
       VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?)`)
-      .bind(id, lead.id, photoId, requestKey, inputHash, now.slice(0, 10), config.dailyLimit, colorName, colorHex, surface, now, now).run();
+      .bind(id, lead.id, photoId, requestKey, inputHash, now.slice(0, 10), config.dailyLimit, customPrompt?'Custom preview':colorName, colorHex, surface, now, now).run();
   } catch (error) {
     if (/NO_CREDITS/.test(String(error))) fail(429, 'NO_CREDITS', 'You have used the free previews for this event. Your project details are saved.');
     if (/DAILY_CAP/.test(String(error))) fail(429, 'DAILY_CAP', 'Today’s preview limit has been reached. Please ask the booth team about your project.');
@@ -400,7 +406,7 @@ async function createRender(request, env, config, lead) {
   }
   const key = `renders/${lead.id}/${id}`;
   try {
-    const result = await callRenderer(env, { bytes: new Uint8Array(await stored.arrayBuffer()), mime: photo.mime_type }, { colorName, colorHex, surface,surfaces });
+    const result = await callRenderer(env, { bytes: new Uint8Array(await stored.arrayBuffer()), mime: photo.mime_type }, { colorName, colorHex, surface,surfaces,customPrompt });
     await env.PHOTOS.put(key, result.bytes, { httpMetadata: { contentType: result.mime } });
     const update = await env.DB.prepare(`UPDATE renders SET status='completed',object_key=?,mime_type=?,updated_at=? WHERE id=? AND status='pending'`)
       .bind(key, result.mime, new Date().toISOString(), id).run();
