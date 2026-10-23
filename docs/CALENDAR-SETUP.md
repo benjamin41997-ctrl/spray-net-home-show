@@ -26,9 +26,9 @@ A block may start up to 24 hours ago to cover today, must end in the future with
 
 This scheduler does **not** read Outlook, send invitations, or synchronize changes/cancellations. Add actual outside commitments as staff blocks before offering visitor appointments, and maintain them when the outside calendar changes. The user's Outlook placeholders named “BLOCK” intentionally remain bookable; do not import them as unavailable time.
 
-Visitors can download a 90-minute .ics appointment; staff can download it with 30 minutes reserved for travel. Import manually and inspect the resulting duration. Downloading does not insert it into Outlook or notify anyone. Cancelling here does not remove the imported Outlook event, and editing Outlook does not change this app. Update both when needed and avoid repeated imports.
+Visitors see/download a one-hour consultation. Internal reservations remain 90 minutes, and staff exports add 30 minutes for travel. Import manually and inspect the resulting duration. Downloading does not insert it into Outlook or notify anyone. Cancelling here does not remove the imported Outlook event, and editing Outlook does not change this app. Update both when needed and avoid repeated imports.
 
-No project-link email/text is sent. Visitors retain their private project QR/link themselves. An optional email is a contact field; internal mode does not send it an invitation.
+Phone browsers remember private project access without a separate link-saving section. The optional email remains a contact field. For a confirmed appointment with an email address, the owner calendar offers **Prepare confirmation email**, opening a one-hour confirmation draft. Choose ben.hessler@spray-net.com as sender, review and send it. Automatic sending requires an authorized Microsoft app with delegated Mail.Send (or an approved organizational mail service); no such authorization is connected. [Microsoft sending permissions](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
 
 ## Configuration and protected routes
 
@@ -37,11 +37,12 @@ Use BOOKING_PROVIDER=internal. Ordinary server settings:
 | Setting | Intended value |
 | --- | --- |
 | BOOKING_START_DATE | 2026-10-26 |
+| BOOKING_END_DATE | 2026-11-08, inclusive in Eastern Time |
 | BOOKING_DURATION_MINUTES | 90 |
 | BOOKING_BUFFER_MINUTES | 30 |
 | BOOKING_WORK_START / BOOKING_WORK_END | 08:00 / 19:00 |
 | BOOKING_WORK_DAYS | 0,1,2,3,4,5,6 |
-| BOOKING_HORIZON_DAYS | Future booking window; review for the show. |
+| BOOKING_HORIZON_DAYS | 30; the end-date limit still closes availability on November 8. |
 | BOOKING_MIN_NOTICE_MINUTES | Minimum notice before an appointment. |
 
 The API is authoritative. Staff requests use trusted configured apiBase:

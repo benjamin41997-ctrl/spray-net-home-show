@@ -16,18 +16,16 @@ const metadata = row => ({ status: row.status, start: row.start_at, end: row.end
 export function bookingConfiguration(env) {
   const config = scheduleConfiguration({ ...env, BOOKING_WORK_DAYS: env.BOOKING_WORK_DAYS ?? '0,1,2,3,4,5,6',
     BOOKING_WORK_START: env.BOOKING_WORK_START || '08:00', BOOKING_WORK_END: env.BOOKING_WORK_END || '19:00' });
-  const startDate = env.BOOKING_START_DATE == null || env.BOOKING_START_DATE === '' ? '' : String(env.BOOKING_START_DATE);
-  let startDateValid = !startDate;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-    const date = new Date(`${startDate}T12:00:00Z`);
-    startDateValid = Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === startDate;
-  }
-  return { ...config, available: Boolean(env.DB && config.scheduleValid && startDateValid), provider: 'internal', startDate };
+  const startDate=String(env.BOOKING_START_DATE || ''),endDate=String(env.BOOKING_END_DATE || '');
+  const valid=value=>!value || (/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value+'T12:00:00Z'))
+    && new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value);
+  const datesValid=valid(startDate)&&valid(endDate)&&(!startDate||!endDate||endDate>=startDate);
+  return { ...config, available: Boolean(env.DB && config.scheduleValid && datesValid), provider: 'internal', startDate,endDate };
 }
 function onOrAfterStartDate(start,config) {
-  if (!config.startDate) return true;
   const parts=Object.fromEntries(easternDate.formatToParts(start).map(part=>[part.type,part.value]));
-  return `${parts.year}-${parts.month}-${parts.day}` >= config.startDate;
+  const day=`${parts.year}-${parts.month}-${parts.day}`;
+  return (!config.startDate||day>=config.startDate)&&(!config.endDate||day<=config.endDate);
 }
 function configured(env) {
   const config = bookingConfiguration(env);

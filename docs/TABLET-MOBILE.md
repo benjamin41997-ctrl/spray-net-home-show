@@ -14,7 +14,7 @@ Mobile is the default. See [deployment status](DEPLOYMENT.md) before assuming cu
 
 Both initially require only **name and phone**. Email/address are optional; a project address is required for consultation booking. Saving a lead offers scheduling to unlock photos and visualizer. Only the backend-confirmed internal appointment unlocks; a contact preference/copied link does not.
 
-Appointments begin **Monday, October 26, 2026**. Hours are **all seven days 8:00 am–7:00 pm Eastern**, **90-minute visits**, **30-minute travel buffer**, latest start **5:30 pm**. Staff blocks/app appointments reduce choices. This calendar does not read Outlook, so staff enter outside commitments as blocks. [Calendar instructions](CALENDAR-SETUP.md)
+Appointments are offered **October 26–November 8, 2026**, inclusive, every day in the 8:00 am–7:00 pm Eastern work window. Visitors see a **one-hour consultation** in the picker, confirmation and downloaded calendar. Internal reservations retain **90 minutes plus a 30-minute travel gap**, latest start **5:30 pm**. Staff blocks/app appointments reduce choices. This calendar does not read Outlook, so staff enter outside commitments as blocks. [Calendar instructions](CALENDAR-SETUP.md)
 
 The rendering key is privately connected and an authorized live image test completed successfully. Offer: three successful renders per normalized phone/event, 50/day global attempt cap. Booking and provider readiness are separate requirements. Both layouts support native autofill and local address suggestions, with manual entry available.
 
@@ -26,7 +26,11 @@ A private QR/link appears after a saved lead, preserving #studio=<lead-id>.<visi
 
 QR generation uses the local MIT encoder: DOM SVG, black/white, medium error correction, four-module white margin. No URL/token goes to a QR service. Keep codes square, preserve margins, and do not cover modules with logos.
 
-No project-link email/text is sent. Visitors must copy/save/scan it themselves; tab storage does not transfer access to another phone. A confirmed visitor can download a 90-minute .ics appointment for manual import. It is not an invitation or synchronized calendar.
+On mobile, the thank-you and home-show rewards invitation lead to a large scheduling button, with the visualizer benefit below it. The project-link section is hidden. The browser remembers only the private lead ID/token and configured API origin in local storage, so returning in another tab works without re-entering contact details. Contact data and pending request payloads remain tab-scoped. Kiosks never read/write this persistent mobile access. Clearing browser data removes saved access; storage does not transfer access between devices.
+
+No automatic project-link email/text or appointment email is sent. The owner calendar can prepare a confirmation email in the owner's email app for review and sending from ben.hessler@spray-net.com. Automatic sending requires Microsoft mail authorization, which is not connected. A confirmed visitor can download a **one-hour** .ics appointment; staff calendar exports preserve the internal reservation and travel gap.
+
+Visualizer surfaces allow multiple selections: Cabinets, Siding, Fascia, Gutters and downspouts, Windows, Front door, Garage door and frame. The selected color applies to all chosen visible surfaces in a single request, using one render credit. Window glass is preserved. Existing single-surface pending requests remain retryable.
 
 ## Shared tablet routine
 

@@ -893,6 +893,17 @@ test('concurrent render requests reserve credits atomically and enforce three to
   assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders, 0);
   assert.equal(env.DB.sqlite.prepare('SELECT attempts FROM daily_attempts').get().attempts, 3);
 });
+test('multiple selected surfaces reach the rendering adapter together and consume one credit, with idempotent retries',async()=>{
+  const env=environment(),person=await lead(env),uploaded=await photo(env,person);let calls=0;
+  const body={...settings(uploaded.id),surfaces:['Windows','Siding','Fascia']};delete body.surface;
+  await withFetch(async(url,init)=>{calls++;const payload=JSON.parse(init.body);assert.deepEqual(payload.surfaces,['Siding','Fascia','Windows']);assert.equal(payload.surface,'Siding, Fascia, Windows');return renderedResponse();},async()=>{
+    const options={method:'POST',body,token:person.token,key:'multi-surface-request'};
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,options)).status,201);
+    assert.equal((await request(env,`/api/leads/${person.id}/renders`,options)).status,200);
+    for(const surfaces of [[],['Roof'],['Siding','malicious instruction']])assert.equal((await request(env,`/api/leads/${person.id}/renders`,{...options,body:{...body,surfaces},key:crypto.randomUUID()})).status,400);
+  });
+  assert.equal(calls,1);assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders,2);
+});
 
 test('idempotency avoids a second paid call, pending retry is safe, mismatched reuse fails', async () => {
   const env = environment(), person = await lead(env), uploaded = await photo(env, person); let finish, calls = 0;

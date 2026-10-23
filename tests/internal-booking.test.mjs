@@ -58,6 +58,16 @@ test('invalid booking start dates fail closed, and DST is compared as Eastern da
   const slots=await listConsultationSlots(env,{now:Date.parse('2026-10-31T12:00:00Z')});
   assert.equal(slots.slots[0].start,'2026-11-01T13:00:00.000Z'); // Sunday08:00ESTafterfallback
 });
+test('home-show availability includes November 8, respects DST and closes after the configured Eastern end date',async()=>{
+  const env=environment({BOOKING_START_DATE:'2026-10-26',BOOKING_END_DATE:'2026-11-08',BOOKING_HORIZON_DAYS:'30'}),person=lead(env);
+  const options={now:Date.parse('2026-10-22T12:00:00Z')},data=await listConsultationSlots(env,options);
+  assert.equal(data.slots[0].start,'2026-10-26T12:00:00.000Z');
+  const last=data.slots.at(-1);assert.equal(last.start,'2026-11-08T22:30:00.000Z');assert.equal(last.end,'2026-11-09T00:00:00.000Z');
+  assert.equal((await bookConsultation(env,{lead:person,start:last.start,requestKey:'november-eight-booking'},options)).status,'confirmed');
+  await assert.rejects(bookConsultation(env,{lead:lead(env,{phone:'5551239999'}),start:'2026-11-09T14:00:00.000Z',requestKey:'after-event-window'},options),error=>error.code==='INVALID_SLOT');
+  assert.deepEqual((await listConsultationSlots(env,{now:Date.parse('2026-11-09T12:00:00Z')})).slots,[]);
+  for(const end of ['2026-02-30','2026-10-25','Nov 8'])assert.equal(bookingConfiguration({...env,BOOKING_END_DATE:end}).available,false);
+});
 
 test('slot list uses real internal reservations and travel buffers, with latest start 17:30',async()=>{
   const env=environment(), person=lead(env); await book(env,person);

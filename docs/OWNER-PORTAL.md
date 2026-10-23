@@ -16,6 +16,8 @@ Apply `backend/migrations/0005_lead_deletion_cleanup.sql` before deploying the d
 
 ## Lead progress
 
+The Calendar tab offers **Prepare confirmation email** for confirmed appointments that have an email address. It opens a draft in the owner's email app, using the visitor's one-hour appointment time. Choose the Spray-Net sender and review/send manually. The app does not send automatically; Microsoft Mail.Send authorization is not configured. Staff Outlook exports retain the longer internal reservation and travel gap.
+
 - **Lead received:** contact form was saved.
 - **Scheduling started:** the visitor chose to schedule but has no confirmed booking.
 - **Booking pending:** a booking is still being confirmed.

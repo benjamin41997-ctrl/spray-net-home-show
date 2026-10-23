@@ -25,7 +25,7 @@ The owner page uses the review portal's existing email/password account and save
 
 If a separate local staff-access file is provided, keep it private, outside Git, with its restricted local permissions. It must never be published or copied into the repository. The page itself can be public because the API requires authentication; its URL is not a substitute for a key.
 
-The app does not read/sync Outlook. Add actual outside commitments to staff blocks, while leaving the user's “BLOCK” placeholders bookable. Internal cancellation does not remove an imported Outlook event. Visitors can download a 90-minute calendar file; staff files reserve 120 minutes including travel. Import manually, check the duration, and update both calendars when a real appointment changes. No invitations are sent in internal mode. [Calendar instructions](CALENDAR-SETUP.md)
+The app does not read/sync Outlook. Add actual outside commitments to staff blocks, while leaving the user's “BLOCK” placeholders bookable. Internal cancellation does not remove an imported Outlook event. Visitors see/download a one-hour visit; staff files reserve 120 minutes including travel. Import manually, check the duration, and update both calendars when a real appointment changes. No automatic invitations are sent in internal mode; the owner calendar prepares a confirmation email draft for manual sending. [Calendar instructions](CALENDAR-SETUP.md)
 
 ## Backend configuration
 
@@ -86,7 +86,7 @@ CSV cells are escaped against spreadsheet formulas. The exact Spray-Network impo
 ## Acceptance and privacy
 
 1. Test real mobile/tablet cameras, public/private QR, autofill, and name/phone-only submission.
-2. Verify slots start October 26, use the seven-day 8–7 Eastern window, last start 5:30, and respect actual blocks/90-minute visits/30-minute gaps. “BLOCK” placeholders stay available.
+2. Verify slots cover October 26–November 8 inclusive, use the seven-day 8–7 Eastern work window, last start 5:30, and respect actual blocks/90-minute internal reservations/30-minute gaps. Visitor displays/downloads show one hour. “BLOCK” placeholders stay available.
 3. Test retrying the same lost-response booking, competing requests, private-link recovery, and staff cancellation. Unbooked/cancelled leads must remain locked on every media/render route.
 4. Test owner password login, saved-session restore/refresh, explicit logout, connection recovery, CSV download, and visitor/staff calendar files. A downloaded calendar is not a live invitation/sync.
 5. Check current renderer with one authorized synthetic image request and inspect output before relying on quality. Configured credits/budgets do not prove provider access.

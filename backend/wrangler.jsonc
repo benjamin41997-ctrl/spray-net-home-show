@@ -24,7 +24,9 @@
     "BOOKING_WORK_DAYS": "0,1,2,3,4,5,6",
     "BOOKING_WORK_START": "08:00",
     "BOOKING_WORK_END": "19:00",
-    "BOOKING_START_DATE": "2026-10-26"
+    "BOOKING_START_DATE": "2026-10-26",
+    "BOOKING_END_DATE": "2026-11-08",
+    "BOOKING_HORIZON_DAYS": "30"
   },
   "d1_databases": [
     {

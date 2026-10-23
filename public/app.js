@@ -4,11 +4,14 @@ import { renderQr } from './qr.js';
 import { createCalendarFile } from './calendar.js';
 import { attachAddressAutocomplete } from './address-autocomplete.js';
 import { createVisitRecorder } from './visits.js';
+import { VISUALIZER_SURFACES, selectedSurfaces, visitorAppointment } from './project-options.js';
+import { createVisitorStorage } from './visitor-storage.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
 document.body.dataset.mode = mode;
-const STORAGE_KEY = 'spraynet-home-show-session-v2';
+let tabStorage,persistentStorage;try{tabStorage=sessionStorage;persistentStorage=localStorage;}catch{}
+const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
 if (location.hash.startsWith('#studio=')) history.replaceState(null, '', location.pathname + location.search);
 const state = { lead: null, session: null, ready: false, renderAvailable: false, busy: false, remaining: 3,
@@ -19,8 +22,8 @@ const lookupAddress = (query,{signal}) => request('/api/addresses/suggest',{meth
 const leadAddress = attachAddressAutocomplete($('#lead-address'),{lookup:lookupAddress});
 const bookingAddress = attachAddressAutocomplete($('#booking-address'),{lookup:lookupAddress});
 const visits = createVisitRecorder((access,body,signal) => request(`/api/leads/${access.id}/visits`,{method:'POST',token:access.token,body,signal}));
-function readSession() { try { return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null'); } catch { return null; } }
-function saveSession(extra = {}) { try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...readSession(), apiBase, ...extra })); } catch {} }
+function readSession() {return visitorStorage.read();}
+function saveSession(extra = {}) {visitorStorage.save({apiBase,...extra});}
 function leadToken() { const b = crypto.getRandomValues(new Uint8Array(32)); return btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''); }
 function message(text = '') { const el = $('#form-alert'); el.textContent = text; el.hidden = !text; }
 function setBusy(button, busy, label) {
@@ -55,15 +58,17 @@ function updateRenderAvailability() {
 function showSaved({ focus = false } = {}) {
   void visits.record(state.lead);
   $('#lead-panel').hidden = true; $('#page-intro').hidden = true; $('#saved-panel').hidden = false; $('#studio').hidden = true;
-  $('#saved-message').textContent = state.session?.lead?.name ? `Thanks, ${state.session.lead.name}. Your details are saved with our team.` : 'Your details are saved with our team.';
+  const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
+  $('#saved-title').textContent=name?`Thanks, ${name}, you’re on our list.`:'Thanks, you’re on our list.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
   const calendar = $('#download-appointment'); calendar.hidden = true;
   if (calendar.dataset.objectUrl) { release(calendar.dataset.objectUrl); delete calendar.dataset.objectUrl; calendar.removeAttribute('href'); }
   if (confirmed) {
     state.pendingBooking = null; saveSession({pendingBooking:null});
-    $('#booking-panel').hidden = true; $('#confirmed-time').textContent = formatAppointment(state.session.booking.start, state.session.booking.end);
+    const visit=visitorAppointment(state.session.booking);
+    $('#booking-panel').hidden = true; $('#confirmed-time').textContent = formatAppointment(visit.start, visit.end);
     $('#confirmed-address').textContent = state.session.lead?.address || '';
-    try { const text = createCalendarFile({id:state.lead.id,...state.session.booking,address:state.session.lead?.address || ''});
+    try { const text = createCalendarFile({id:state.lead.id,...visit,address:state.session.lead?.address || ''});
       const url = objectUrl(new Blob([text],{type:'text/calendar;charset=utf-8'})); calendar.href = url; calendar.dataset.objectUrl = url; calendar.hidden = false;
     } catch {}
   }
@@ -94,7 +99,7 @@ async function restoreSession() {
   const saved = readSession(); let matching = saved?.apiBase === apiBase ? saved : null;
   if (incoming && !sameStudioAccess(incoming, matching?.lead)) matching = null;
   state.pendingLead = matching?.pendingLead || null; state.pendingBooking = matching?.pendingBooking || null;
-  if (!matching && incoming) { try { sessionStorage.removeItem(STORAGE_KEY); } catch {} }
+  if (!matching && incoming) visitorStorage.clear();
   if (incoming) state.lead = incoming;
   else if (matching?.pendingLead) {
     const p = matching.pendingLead;
@@ -110,7 +115,7 @@ async function restoreSession() {
     // project. Network failures still retain the session for safe recovery.
     visits.reset();state.lead=null;state.session=null;state.pendingLead=null;state.pendingBooking=null;
     state.pendingRender=null;state.completedRender=null;
-    try {sessionStorage.removeItem(STORAGE_KEY);}catch{}
+    visitorStorage.clear();
     message('This saved project is no longer available. You can submit a new request below.');return;
   }
   state.pendingRender = matching?.pendingRender || null; state.completedRender = matching?.completedRender || null;
@@ -123,7 +128,7 @@ async function connect() {
     apiBase = safeApiBase(config.apiBase, location.origin);
     if (incoming && apiBase) {
       const previous = readSession();
-      if (previous?.apiBase !== apiBase || !sameStudioAccess(previous?.lead,incoming)) { try {sessionStorage.removeItem(STORAGE_KEY);} catch {} }
+      if (previous?.apiBase !== apiBase || !sameStudioAccess(previous?.lead,incoming)) visitorStorage.clear();
       saveSession({lead:incoming,pendingLead:null});
     }
     const health = apiBase ? await request('/api/health') : null;
@@ -131,7 +136,6 @@ async function connect() {
     const availability = $('#visualizer-availability'); if (availability) availability.hidden = state.renderAvailable;
     state.remaining = health?.freeRenders ?? config.freeRenders ?? 3;
     $$('[data-free-renders]').forEach(e => { e.textContent = String(state.remaining); });
-    $('#booking-length').textContent = `${health?.consultationMinutes || 90}-minute consultation · ${health?.travelBufferMinutes ?? 30}-minute travel buffer`;
     $('#connection-status').textContent = state.ready ? 'Connected securely · South Charlotte' : 'Live submissions are unavailable. Please speak with our booth team.';
     $('#connection-status').classList.toggle('live', state.ready);
     if (state.ready) try { await restoreSession(); } catch {
@@ -178,12 +182,13 @@ function renderSlots() {
     button.addEventListener('click', () => { state.selectedSlot = slot.start; renderSlots(); }); $('#slot-times').append(button);
   }
   const slot = state.slots.find(s => s.start === state.selectedSlot);
-  $('#selected-time').textContent = slot ? formatAppointment(slot.start, slot.end) : 'Choose a time above.';
+  const visit=slot?visitorAppointment(slot):null;
+  $('#selected-time').textContent = visit ? formatAppointment(visit.start, visit.end) : 'Choose a time above.';
   $('#confirm-booking').disabled = !slot;
 }
 async function loadSlots() {
   if (state.busy || !state.lead) return;
-  $('#booking-panel').hidden = false; $('#booking-title').focus({ preventScroll: true }); state.busy = true;
+  $('#booking-panel').hidden = false; $('#booking-invitation').hidden=true; $('#booking-title').focus({ preventScroll: true }); state.busy = true;
   $('#booking-status').textContent = 'Checking available consultation times…'; $('#slot-picker').hidden = true; $('#booking-form').hidden = true; message();
   try {
     await refreshSession(); if (unlocked()) { showSaved(); return; }
@@ -198,7 +203,7 @@ async function loadSlots() {
     }
     const data = await request(`/api/leads/${state.lead.id}/consultation/slots`, { token: state.lead.token });
     state.slots = data.slots || []; state.selectedSlot = ''; renderSlots();
-    $('#booking-status').textContent = state.slots.length ? 'Choose your consultation time below.' : 'No online times are available right now. Your details are saved; our team can help find a time.';
+    $('#booking-status').textContent = state.slots.length ? '' : 'No online times are available right now. Your details are saved; our team can help find a time.';
     $('#slot-picker').hidden = !state.slots.length; $('#booking-form').hidden = !state.slots.length;
   } catch (e) {
     if (clearRejectedBooking(e)) $('#booking-status').textContent = `${e.message} Use Refresh to choose another time.`;
@@ -238,14 +243,15 @@ $('#copy-project-link').addEventListener('click', async () => {
 });
 function resetVisitor() {
   if (state.busy) { message('Please wait for the current request to finish before clearing this tablet.'); return; }
-  try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+  visitorStorage.clear();
   visits.reset();
   for (const url of [...state.urls]) release(url);
   Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
   state.shownResults.clear(); form.reset(); $('#booking-form').reset();
   leadAddress.clear();bookingAddress.clear();
   for (const id of ['#render-results','#studio-photos','#private-project-qr','#slot-days','#slot-times']) $(id).replaceChildren();
-  for (const id of ['#access-status','#booking-status','#render-status','#selected-time','#saved-message','#confirmed-time','#confirmed-address']) $(id).textContent = '';
+  for (const id of ['#access-status','#booking-status','#render-status','#selected-time','#confirmed-time','#confirmed-address']) $(id).textContent = '';
+  surfaceOptions();
   $('#private-link').value = ''; $('#private-link').hidden = true; $('#retry-image').hidden = true;
   $('#download-appointment').removeAttribute('href'); delete $('#download-appointment').dataset.objectUrl; $('#download-appointment').hidden = true;
   $('#lead-panel').hidden = false; $('#page-intro').hidden = false; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true; $('#idle-notice').hidden = true;
@@ -275,6 +281,14 @@ function colorOptions() {
     const swatch = document.createElement('span'); swatch.setAttribute('aria-hidden','true'); button.append(swatch,document.createTextNode(color.name));
     button.addEventListener('click', () => { state.color = i; colorOptions(); }); $('#color-options').append(button);
   });
+}
+function surfaceOptions() {
+  const area=$('#surface-options');area.replaceChildren();
+  for(const [index,surface] of VISUALIZER_SURFACES.entries()) {
+    const label=document.createElement('label'),input=document.createElement('input'),text=document.createElement('span');
+    input.type='checkbox';input.name='surfaces';input.value=surface;input.checked=index===0;text.textContent=surface;
+    label.append(input,text);area.append(label);
+  }
 }
 async function fetchPrivateImage(path) {
   const access = state.lead; const url = privateMediaUrl(path,apiBase,location.origin);
@@ -349,10 +363,13 @@ $('#create-render').addEventListener('click', async () => {
   if (state.busy || !unlocked() || !state.renderAvailable) return;
   if (!state.pendingRender && !state.photos.length) {message('Add a photo of your home or cabinets first.');return;}
   if (!state.pendingRender && state.remaining <= 0) {message('You’ve used your free visualizations. Our team can help explore more ideas.');return;}
+  let surfaces;
+  try {if(!state.pendingRender)surfaces=selectedSurfaces($$('#surface-options input:checked').map(input=>input.value));}
+  catch(error){message(error.message);$('#surface-options input').focus();return;}
   state.busy = true; const button = $('#create-render'), status = $('#render-status'); setBusy(button,true,'Creating your new look…'); message();
   try {
     if (!state.pendingRender) {const photo = state.photos[state.selectedPhoto], color = COLORS[state.color]; await uploadPhoto(photo);studioPhotos();
-      state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surface:$('#surface').value},color}; saveSession({pendingRender:state.pendingRender});}
+      state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surfaces},color}; saveSession({pendingRender:state.pendingRender});}
     const pending = state.pendingRender; status.textContent = 'Creating your visualization. This can take a couple of minutes. Keep this page open.';
     let result = await request(`/api/leads/${state.lead.id}/renders`,{method:'POST',body:pending.body,token:state.lead.token,headers:{'Idempotency-Key':pending.key},timeout:240000});
     for (let n=0;n<30 && result.status === 'pending';n++) {await new Promise(resolve => setTimeout(resolve,2500));result = await request(`/api/leads/${state.lead.id}/renders/${result.id}`,{token:state.lead.token});}
@@ -375,4 +392,4 @@ for (const id of ['#privacy-button','#footer-privacy']) $(id).addEventListener('
 for (const id of ['#close-privacy','#privacy-done']) $(id).addEventListener('click',() => privacy.close());
 privacy.addEventListener('click',e => { if (e.target === privacy) {const r = privacy.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)privacy.close();} });
 window.addEventListener('beforeunload',() => {for(const url of state.urls)URL.revokeObjectURL(url);});
-colorOptions();connect();
+colorOptions();surfaceOptions();connect();

@@ -1,6 +1,7 @@
 import { safeApiBase } from './lib.js';
 import { createCalendarFile } from './calendar.js';
 import { createOwnerAuth } from './owner-auth.js';
+import { confirmationEmailDraft } from './confirmation-email.js';
 
 const EASTERN_ZONE = 'America/New_York';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -227,6 +228,10 @@ function initializeAdmin() {
           } catch { message('This appointment could not be downloaded. Refresh the calendar and try again.'); }
         });
         actions.append(download);
+        if(appointment.email) {
+          const draft=element('a','button secondary small','Prepare confirmation email');
+          try{draft.href=confirmationEmailDraft(appointment);draft.addEventListener('click',()=>message('Email draft opened. Choose ben.hessler@spray-net.com as the sender, review the details, and send. This button does not send automatically.',true));actions.append(draft);}catch{}
+        }
       }
       cancel.type = 'button'; cancel.setAttribute('data-action-button', '');
       cancel.addEventListener('click', () => {
