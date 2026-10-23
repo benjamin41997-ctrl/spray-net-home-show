@@ -14,14 +14,14 @@ The user's rendering key is configured privately, and an authorized real image t
 
 - ?mode=mobile is the visitor phone layout and default.
 - ?mode=tablet is the staffed kiosk; its public QR opens the same page origin/path with ?mode=mobile.
-- admin.html is the staff calendar/export page, protected by the administrator key.
+- admin.html is the owner calendar/export page, protected by the existing review-portal account.
 - Private project QR/links resume an existing lead. Their #studio= fragment carries bearer access and never bypasses booking checks.
 
 QR generation is entirely local. Keep private QR/links out of logs, analytics, public signage, and third-party QR services. The page scrubs/verifies access fragments using the trusted configured API. Visitors save/scan their private link themselves; no automatic email/SMS delivery exists. [Tablet/mobile routine](TABLET-MOBILE.md)
 
 ## Staff access and scheduling
 
-The staff page uses ADMIN_TOKEN entered as a password and held only in tab memory. It lists upcoming appointments, adds/removes unavailable blocks, cancels visits, downloads lead CSV, and provides staff .ics files with a 30-minute travel reservation. Sign-out, page close, or 10-minute inactivity clears contacts/token and aborts requests. Never place the key in a URL, local/session storage, public config, Git, or chat.
+The owner page uses the review portal's existing email/password account and saved Supabase session, with automatic refresh and no inactivity timeout. The Worker verifies each provider token and requires the confirmed OWNER_EMAIL. Temporary connection errors keep the saved sign-in. Explicit sign-out clears this browser's shared review/owner session and aborts private requests. Passwords and ADMIN_TOKEN are never stored in browser storage or public source. Configure SUPABASE_URL, the public SUPABASE_PUBLISHABLE_KEY, and OWNER_EMAIL on the Worker. [Owner access details](OWNER-PORTAL.md)
 
 If a separate local staff-access file is provided, keep it private, outside Git, with its restricted local permissions. It must never be published or copied into the repository. The page itself can be public because the API requires authentication; its URL is not a substitute for a key.
 
@@ -88,7 +88,7 @@ CSV cells are escaped against spreadsheet formulas. The exact Spray-Network impo
 1. Test real mobile/tablet cameras, public/private QR, autofill, and name/phone-only submission.
 2. Verify slots start October 26, use the seven-day 8–7 Eastern window, last start 5:30, and respect actual blocks/90-minute visits/30-minute gaps. “BLOCK” placeholders stay available.
 3. Test retrying the same lost-response booking, competing requests, private-link recovery, and staff cancellation. Unbooked/cancelled leads must remain locked on every media/render route.
-4. Test staff access, idle/logout, connection failure clearing, CSV download, and visitor/staff calendar files. A downloaded calendar is not a live invitation/sync.
+4. Test owner password login, saved-session restore/refresh, explicit logout, connection recovery, CSV download, and visitor/staff calendar files. A downloaded calendar is not a live invitation/sync.
 5. Check current renderer with one authorized synthetic image request and inspect output before relying on quality. Configured credits/budgets do not prove provider access.
 6. Have visitors retain private project links before kiosk reset. Verify delayed responses cannot restore the previous visitor's details.
 7. Add business privacy/contact and deletion/retention procedures. No scheduled purge exists; D1/media deletion must be coordinated. Store downloads privately.

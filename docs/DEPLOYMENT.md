@@ -22,7 +22,7 @@ The renderer key is server-only and connected with user approval. After fixing a
 
 Local address suggestions are deployed from NCOneMap, York County SC, and Lancaster County SC, without paid API credentials. Live searches returned the actual Belmont address with city/state/ZIP. Only name and phone are marked Required; the contact and booking forms keep native browser autocomplete enabled. Selected address parts are saved atomically with a booking, and manual edits clear stale parts. See [source coverage and usage](ADDRESS-AUTOCOMPLETE.md).
 
-Staff access uses the separate administrator key, entered only in the admin page and held in tab memory. A separately supplied local access file must remain private/outside Git and must never be published. No access value belongs in these deployment notes.
+Owner access reuses the review portal's email/password account and persistent Supabase session. The Worker verifies tokens against the configured provider and requires the confirmed OWNER_EMAIL. Public config includes only the provider URL and publishable key. The separate operator ADMIN_TOKEN and protected local access file remain private/outside Git; no access value belongs in these deployment notes.
 
 ## Administration
 

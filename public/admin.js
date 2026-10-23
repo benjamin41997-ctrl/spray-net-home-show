@@ -1,5 +1,6 @@
 import { safeApiBase } from './lib.js';
 import { createCalendarFile } from './calendar.js';
+import { createOwnerAuth } from './owner-auth.js';
 
 const EASTERN_ZONE = 'America/New_York';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -52,9 +53,10 @@ if (typeof document !== 'undefined') initializeAdmin();
 
 function initializeAdmin() {
   const $ = selector => document.querySelector(selector);
-  const state = { token: '', busy: false, authenticated: false, generation: 0, lastActivity: Date.now(), controllers: new Set(), downloads: new Set(),leadPage:1,leadPages:1 };
-  let apiBase = '';
+  const state = { busy: false, authenticated: false, generation: 0, controllers: new Set(), downloads: new Set(),leadPage:1,leadPages:1 };
+  let apiBase = '', auth = null;
   try { apiBase = safeApiBase(window.SPRAYNET_CONFIG?.apiBase, location.origin); } catch {}
+  try { auth = createOwnerAuth(window.SPRAYNET_CONFIG,location.origin); } catch {}
   const message = (text = '', success = false) => {
     const box = $('#admin-message'); box.textContent = text; box.hidden = !text; box.classList.toggle('success', success);
   };
@@ -70,35 +72,54 @@ function initializeAdmin() {
   }
   function busy(value, label = '') {
     state.busy = value;
-    $('#sign-in').disabled = value || !apiBase;
+    $('#sign-in').disabled = value || !apiBase || !auth; $('#retry-sign-in').disabled = value;
     for (const button of document.querySelectorAll('[data-action-button]')) button.disabled = value;
     $('#lead-stage').disabled=value;$('#previous-leads').disabled=value || state.leadPage<=1;
     $('#next-leads').disabled=value || state.leadPage>=state.leadPages;
     if (label) $('#calendar-status').textContent = label;
   }
-  function signOut(text = 'You’re signed out.') {
-    state.generation++; state.token = ''; state.authenticated = false;
+  function clearSessionView(text = 'You’re signed out.', focus = true) {
+    state.generation++; state.authenticated = false;
     for (const controller of state.controllers) controller.abort(); state.controllers.clear();
     for (const url of state.downloads) URL.revokeObjectURL(url); state.downloads.clear();
-    clearCalendar();clearLeads();state.leadPage=1;state.leadPages=1;$('#lead-search-form').reset();showTab('leads');$('#staff-key').value = ''; $('#block-form').reset();
+    clearCalendar();clearLeads();state.leadPage=1;state.leadPages=1;$('#lead-search-form').reset();showTab('leads');$('#owner-password').value = ''; $('#block-form').reset();
     $('#calendar-workspace').hidden = true; $('#sign-in-panel').hidden = false; $('#sign-out').hidden = true;
-    busy(false); message(text); $('#staff-key').focus({ preventScroll: true });
+    $('#retry-sign-in').hidden = true;
+    busy(false); message(text); if (focus) $('#owner-email').focus({ preventScroll: true });
   }
   function safeError(error) {
-    if (error?.status === 401 || error?.status === 403) return 'The staff access key was not accepted. Sign in again to continue.';
+    if (error?.status === 401) return 'Your saved sign-in was not accepted. Sign in again with your review-portal email and password.';
+    if (error?.status === 403) return 'This account does not have owner access. Sign in with your Spray-Net owner account.';
     if (error?.status === 404) return 'Staff scheduling is unavailable at this connection. No calendar data is shown.';
     if (error?.code === 'INTERNAL_SCHEDULER_REQUIRED') return 'This staff calendar is available only with the internal scheduler. No calendar data is shown.';
-    return error?.safeMessage || 'The portal connection failed. Private details have been cleared. Sign in again when the connection is available.';
+    return error?.safeMessage || 'The connection was interrupted. Your sign-in is saved. Refresh the portal to check the latest status.';
+  }
+  function handleFailure(error) {
+    if ([401,403].includes(error?.status)) clearSessionView(safeError(error));
+    else message(safeError(error));
+  }
+  async function authorizedFetch(path, options) {
+    const accessToken = await auth.getAccessToken();
+    if (!accessToken) { const error = new Error('SIGN_IN_REQUIRED'); error.status=401; throw error; }
+    const send = token => fetch(apiBase+path,{...options,headers:{...options.headers,Authorization:`Bearer ${token}`}});
+    let response = await send(accessToken);
+    if (response.status === 401) {
+      await response.body?.cancel();
+      const refreshedToken = await auth.getAccessToken(true);
+      if (!refreshedToken) { const error = new Error('SIGN_IN_REQUIRED'); error.status=401; throw error; }
+      response = await send(refreshedToken);
+    }
+    return response;
   }
   async function request(path, { method = 'GET', body } = {}) {
-    if (!apiBase || !state.token) throw new Error('CONNECTION_UNAVAILABLE');
+    if (!apiBase || !auth) throw new Error('CONNECTION_UNAVAILABLE');
     const generation = state.generation;
     const controller = new AbortController(); state.controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
-      const headers = { Authorization: `Bearer ${state.token}` };
+      const headers = {};
       if (body !== undefined) headers['Content-Type'] = 'application/json';
-      const response = await fetch(apiBase + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+      const response = await authorizedFetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' });
       if (generation !== state.generation) throw new Error('SESSION_CLEARED');
       let data;
@@ -261,35 +282,63 @@ function initializeAdmin() {
     } catch (error) {
       if (generation !== state.generation) return;
       if ([400, 409, 422].includes(error.status) && error.code !== 'INTERNAL_SCHEDULER_REQUIRED') message(safeError(error));
-      else signOut(safeError(error));
+      else handleFailure(error);
     } finally { if (generation === state.generation) busy(false); }
   }
   $('#sign-in-form').addEventListener('submit', async event => {
     event.preventDefault(); if (state.busy) return;
     if (!apiBase) { message('The staff calendar is not connected in this preview. Open the connected site or ask your team for access.'); return; }
-    const input = $('#staff-key'); if (!input.checkValidity()) { input.reportValidity(); return; }
+    for (const input of event.target.querySelectorAll('input')) if (!input.checkValidity()) { input.reportValidity(); return; }
+    if (!auth) { message('Owner sign-in is not configured. Refresh the published portal.'); return; }
     state.generation++; const generation = state.generation;
-    state.token = input.value.trim(); input.value = ''; state.lastActivity = Date.now();
-    busy(true); message('Checking staff access…');
+    const password = $('#owner-password').value;
+    busy(true); message('Signing in…');
     try {
+      await auth.signIn($('#owner-email').value,password); $('#owner-password').value = '';
+      if (generation !== state.generation) return;
       if (await loadWorkspace(generation)) {
         state.authenticated = true; $('#sign-in-panel').hidden = true; $('#calendar-workspace').hidden = false; $('#sign-out').hidden = false;
         message();showTab('leads',true);
       }
-    } catch (error) { if (generation === state.generation) signOut(safeError(error)); }
-    finally { if (generation === state.generation) busy(false); }
+    } catch (error) {
+      if (generation === state.generation) {
+        if ([400,422].includes(error?.status) || ['invalid_credentials','email_not_confirmed','user_banned'].includes(error?.code)) message('Email or password is incorrect, or this account is unavailable. Use your existing review-portal account.');
+        else if (error?.status === 429) message('Too many sign-in attempts. Wait a moment and try again.');
+        else handleFailure(error);
+      }
+    }
+    finally { $('#owner-password').value = ''; if (generation === state.generation) busy(false); }
   });
+  async function restoreAccess() {
+    if (!apiBase || !auth || state.busy) return;
+    state.generation++; const generation = state.generation; busy(true); message('Restoring your saved sign-in…');
+    $('#retry-sign-in').hidden=true;
+    try {
+      const token = await auth.getAccessToken();
+      if (generation !== state.generation) return;
+      if (!token) { message(); return; }
+      if (await loadWorkspace(generation)) {
+        state.authenticated=true; $('#sign-in-panel').hidden=true; $('#calendar-workspace').hidden=false; $('#sign-out').hidden=false;
+        message();
+      }
+    } catch (error) {
+      if (generation === state.generation) {
+        handleFailure(error); if (![401,403].includes(error?.status)) $('#retry-sign-in').hidden=false;
+      }
+    } finally { if (generation === state.generation) busy(false); }
+  }
+  $('#retry-sign-in').addEventListener('click',restoreAccess);
   $('#refresh-calendar').addEventListener('click', async () => {
     if (state.busy || !state.authenticated) return;
     const generation = state.generation; busy(true); message();
     try { await loadWorkspace(generation); }
-    catch (error) { if (generation === state.generation) signOut(safeError(error)); }
+    catch (error) { if (generation === state.generation) handleFailure(error); }
     finally { if (generation === state.generation) busy(false); }
   });
   async function changeLeadPage(page=1) {
     if(state.busy || !state.authenticated)return;
     state.leadPage=page;const generation=state.generation;busy(true);message();
-    try{await loadLeads(generation);}catch(error){if(generation===state.generation)signOut(safeError(error));}
+    try{await loadLeads(generation);}catch(error){if(generation===state.generation)handleFailure(error);}
     finally{if(generation===state.generation)busy(false);}
   }
   $('#lead-search-form').addEventListener('submit',event=>{event.preventDefault();changeLeadPage();});
@@ -307,7 +356,7 @@ function initializeAdmin() {
     const generation = state.generation, controller = new AbortController(); state.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(), 20000); busy(true, 'Preparing your private lead export…'); message();
     try {
-      const response = await fetch(apiBase + '/api/admin/leads.csv', { headers: { Authorization: `Bearer ${state.token}` },
+      const response = await authorizedFetch('/api/admin/leads.csv', { headers: {},
         signal: controller.signal, credentials: 'omit', cache: 'no-store', redirect: 'error', referrerPolicy: 'no-referrer' });
       if (generation !== state.generation) return;
       if (!response.ok) { const error = new Error('EXPORT_FAILED'); error.status = response.status; throw error; }
@@ -317,7 +366,7 @@ function initializeAdmin() {
       downloadFile(blob, `spray-net-home-show-leads-${new Date().toISOString().slice(0, 10)}.csv`);
       message('Lead CSV downloaded. Keep it private and use the approved Spray-Network import mapping.', true);
       $('#calendar-status').textContent = 'Private lead export downloaded.';
-    } catch (error) { if (generation === state.generation) signOut(safeError(error)); }
+    } catch (error) { if (generation === state.generation) handleFailure(error); }
     finally { clearTimeout(timeout); state.controllers.delete(controller); if (generation === state.generation) busy(false); }
   });
   $('#block-form').addEventListener('submit', event => {
@@ -333,12 +382,20 @@ function initializeAdmin() {
       mutate('/api/admin/blocks', 'POST', { start, end, note: $('#block-note').value.trim() }, 'Unavailable time added.');
     } catch (error) { message(error.message); }
   });
-  $('#sign-out').addEventListener('click', () => signOut());
-  for (const event of ['pointerdown', 'keydown', 'input', 'scroll']) document.addEventListener(event, () => { state.lastActivity = Date.now(); }, { passive: true });
-  setInterval(() => { if (state.token && Date.now() - state.lastActivity >= 10 * 60000) signOut('You were signed out after 10 minutes without activity. Private details have been cleared.'); }, 1000);
-  // Do not allow a history-cache restore to resurrect private DOM or credentials.
-  window.addEventListener('pagehide', () => signOut('You’re signed out.'));
-  window.addEventListener('pageshow', event => { if (event.persisted) signOut('Sign in again to view the private calendar.'); });
+  $('#sign-out').addEventListener('click', async () => {
+    clearSessionView('You’re signed out on this browser.');
+    try { await auth?.signOut(); } catch { message('Sign-out could not finish. Reconnect and try again before leaving a shared device.'); $('#retry-sign-in').hidden=false; }
+  });
+  auth?.subscribe(event => {
+    if (event === 'SIGNED_OUT') clearSessionView('You’re signed out on this browser.',false);
+    if (event === 'SIGNED_IN' && !state.authenticated && !state.busy) setTimeout(restoreAccess,0);
+  });
+  // Clear private page contents for navigation, while retaining the provider's
+  // saved session. A history restore revalidates access with the private API.
+  window.addEventListener('pagehide', () => clearSessionView('',false));
+  window.addEventListener('pageshow', event => { if (event.persisted) restoreAccess(); });
   busy(false);
   if (!apiBase) message('The staff calendar is not connected in this preview. Open the connected site or ask your team for access.');
+  else if (!auth) message('Owner sign-in is unavailable. Refresh the published portal.');
+  else restoreAccess();
 }

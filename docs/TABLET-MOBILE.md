@@ -36,7 +36,7 @@ No project-link email/text is sent. Visitors must copy/save/scan it themselves; 
 4. Have them save access before clearing. Verify blank form and no previous private QR/photos; the kiosk also clears after its idle warning.
 5. Keep a staffed fallback for network failure. A preview/timeout is not proof of a saved lead/booking.
 
-Staff admin key is separate and never belongs in visitor forms or URLs. Keep any private access file outside Git/public output. Staff logout/10-minute inactivity clears page contacts/token; downloaded CSV/calendar files still need private handling.
+Owner access uses the same email/password and saved session as the review portal. It persists across reloads, page closure and inactivity; explicit sign-out clears the shared session on this browser. Keep the separate operator key and any private access files outside Git/public output and visitor forms. Downloaded CSV/calendar files still need private handling.
 
 ## Verification
 

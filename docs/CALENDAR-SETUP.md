@@ -8,9 +8,9 @@ The existing website/lead API are documented in [DEPLOYMENT.md](DEPLOYMENT.md). 
 
 ## Staff scheduling
 
-Open admin.html on the connected site and enter the separate staff access key. The page is publicly reachable, but records require the ADMIN_TOKEN bearer. This key can export leads and cancel consultations; limit it to authorized staff.
+Open admin.html on the connected site and use the same email/password as the review portal. An existing review-portal session on this browser is reused. The page is publicly reachable, but records require a server-verified provider token belonging to the confirmed OWNER_EMAIL.
 
-The password key stays only in tab memory, never a URL, browser storage, public source, analytics, or console output. Signing out, closing the page, or 10 minutes without activity clears contacts/token and aborts outstanding requests. Authentication/connection failures clear the display. Keep any separately supplied local staff-access file private, outside Git, and never upload/publish it.
+The official Supabase client saves and refreshes the shared provider session; it does not save the password. Page closure and inactivity do not sign the owner out. Connection failures preserve sign-in, while explicit sign-out clears it and aborts outstanding private requests. The separate ADMIN_TOKEN remains a private operator/export credential. Keep its local access file private, outside Git, and never upload/publish it. [Owner access details](OWNER-PORTAL.md)
 
 Staff can:
 
@@ -64,7 +64,7 @@ Retain the same booking key after connection failure. Recheck that request befor
 2. Add representative outside blocks; check all seven days, 8–7 Eastern, latest start 5:30, 90-minute visits, 30-minute gaps, and overnight/daylight-saving behavior.
 3. Use synthetic leads to test name/phone-only capture, repeated/competing booking requests, and lost-response recovery.
 4. Confirm unbooked leads cannot upload/fetch project media or render, confirmed bookings unlock, and staff cancellation relocks.
-5. Test private CSV, visitor/staff calendar files, logout/idle/auth/network failures, and real phone/tablet layouts. Do not use customer data for UI previews.
+5. Test private CSV, visitor/staff calendar files, saved-session restore/refresh, explicit logout, auth/network failures, and real phone/tablet layouts. Do not use customer data for UI previews.
 6. Verify real rendering separately before promising quality. A private key/configured allowance does not prove successful generation.
 
 ## Optional future Outlook/Graph integration

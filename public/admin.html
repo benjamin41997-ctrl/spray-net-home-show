@@ -23,12 +23,15 @@
     <p class="intro">See who signed up, where they are in the process, and when they last opened their project. All times are Eastern.</p>
     <p id="admin-message" class="message" role="alert" hidden></p>
     <section id="sign-in-panel" class="sign-in-card" aria-labelledby="sign-in-title">
-      <h2 id="sign-in-title">Owner access</h2><p>Enter your staff access key to view private leads and the consultation calendar.</p>
-      <form id="sign-in-form" autocomplete="off" novalidate>
-        <label for="staff-key">Staff access key</label><input id="staff-key" name="staffKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="32" maxlength="256" required aria-describedby="key-note">
-        <p id="key-note" class="muted small-text">Your key stays in this tab’s memory. It clears when you sign out or close the page. You’ll be signed out after 10 minutes without activity.</p>
-        <button id="sign-in" class="button full" type="submit">Open owner portal <span aria-hidden="true">→</span></button>
+      <h2 id="sign-in-title">Owner sign-in</h2><p>Use the same email and password as your Spray-Net review portal.</p>
+      <form id="sign-in-form" autocomplete="on" novalidate>
+        <label for="owner-email">Email</label><input id="owner-email" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required>
+        <label for="owner-password">Password</label><input id="owner-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required aria-describedby="sign-in-note">
+        <p id="sign-in-note" class="muted small-text">You’ll stay signed in on this device. Sign out when you’re finished on a shared device.</p>
+        <button id="sign-in" class="button full" type="submit">Sign in <span aria-hidden="true">→</span></button>
       </form>
+      <button id="retry-sign-in" class="button secondary full" type="button" hidden>Retry saved sign-in</button>
+      <p class="small-text"><a href="https://benjamin41997-ctrl.github.io/spray-net-review-portal/?admin=1" target="_blank" rel="noopener noreferrer">Set up or reset your password in the review portal ↗</a></p>
     </section>
     <div id="calendar-workspace" hidden>
       <div class="workspace-bar"><div class="portal-tabs" role="tablist" aria-label="Owner portal views"><button id="leads-tab" role="tab" aria-selected="true" aria-controls="leads-panel" type="button">Leads & activity</button><button id="calendar-tab" role="tab" aria-selected="false" aria-controls="calendar-panel" tabindex="-1" type="button">Calendar</button></div><div class="workspace-actions"><button id="download-leads" class="button secondary small" type="button" data-action-button>Download leads CSV <span aria-hidden="true">↓</span></button><button id="refresh-calendar" class="button secondary small" type="button" data-action-button>Refresh portal <span aria-hidden="true">↻</span></button></div></div>

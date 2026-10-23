@@ -6,6 +6,7 @@ import * as outlookBooking from './booking.mjs';
 import * as internalBooking from './internal-booking.mjs';
 import { AddressError, addressSuggestions } from './address.mjs';
 import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead } from './owner.mjs';
+import { OwnerAuthError, requireOwner } from './owner-auth.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -423,8 +424,7 @@ async function media(env, leadId, id, kind) {
   return new Response(object.body, { headers: { 'Content-Type': row.mime_type, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store' } });
 }
 async function requireAdmin(request, env) {
-  if (!secretReady(env.ADMIN_TOKEN, 32)) fail(503, 'ADMIN_UNAVAILABLE', 'Administrator access is not configured.');
-  if (await hash(bearer(request)) !== await hash(env.ADMIN_TOKEN)) fail(401, 'UNAUTHORIZED', 'A valid administrator token is required.');
+  await requireOwner(request,env);
 }
 async function exportCsv(request, env) {
   await requireAdmin(request, env);
@@ -596,7 +596,7 @@ export default {
         response = await route(request, bindings, config);
       }
     } catch (error) {
-      const safe = error instanceof ApiError || error instanceof AddressError || error instanceof OwnerError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
+      const safe = error instanceof ApiError || error instanceof AddressError || error instanceof OwnerError || error instanceof OwnerAuthError || error instanceof outlookBooking.BookingError || error instanceof internalBooking.BookingError
         ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again or contact the booth team.');
       response = json({ error: { code: safe.code, message: safe.message } }, safe.status);
     }

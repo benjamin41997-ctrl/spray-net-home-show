@@ -1,8 +1,10 @@
 # Owner portal
 
-Open `https://benjamin41997-ctrl.github.io/spray-net-home-show/admin.html` and enter the existing staff access key. The protected local access file is outside the public repository at `../home-show-staff-access.txt`. Never publish that file, put the key in a URL, or send it to visitors.
+Open `https://benjamin41997-ctrl.github.io/spray-net-home-show/admin.html` and use the same email/password as the Spray-Net review portal. An existing review-portal sign-in on this GitHub Pages origin is reused automatically. Password setup/reset remains in the review portal; the owner page links to it and never sends a reset email automatically.
 
-The key remains in tab memory, clears on sign-out/navigation, and expires after ten minutes without activity. Both dashboard and calendar require this key. Visitor project tokens cannot access owner records. Search, stage filters and 50-row pages cover all saved leads; CSV export retains its existing import columns.
+The official Supabase client persists and refreshes the session under the review portal's `spraynet-review-admin` storage key. Reloads, page closure and inactivity do not sign the owner out. Temporary connection failures preserve sign-in and allow retry. Explicit sign-out clears the shared browser session, including other open portal tabs. Passwords and the private operator key are never stored in browser storage. Provider expiry/revocation or clearing browser data can require a new sign-in. [Provider session behavior](https://supabase.com/docs/guides/auth/sessions).
+
+Every owner API request verifies the provider token server-side and requires the confirmed `OWNER_EMAIL`. Local session contents and visitor project tokens do not grant owner access. Configure `SUPABASE_URL`, its public `SUPABASE_PUBLISHABLE_KEY`, and `OWNER_EMAIL` on the Worker. Only the URL/publishable key belong in public config. The separate `ADMIN_TOKEN` remains a private operator/export credential, outside the website login; keep its protected local access file private and outside Git. Search, stage filters and 50-row pages cover all saved leads; CSV export retains its existing import columns.
 
 ## Delete a test lead
 

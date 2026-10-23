@@ -6,6 +6,9 @@
   "workers_dev": true,
   "vars": {
     "ALLOWED_ORIGINS": "https://benjamin41997-ctrl.github.io",
+    "SUPABASE_URL": "https://qyjygiuqwuakluigzjze.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_9UoZslkrZFfV2sd6QHBTcA_iDeRqxVR",
+    "OWNER_EMAIL": "ben.hessler@spray-net.com",
     "EVENT_ID": "home-show-2026-10",
     "FREE_RENDERS": "3",
     "RENDER_ENABLED": "true",
