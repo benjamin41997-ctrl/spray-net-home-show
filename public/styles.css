@@ -48,7 +48,7 @@ body[data-mode=tablet] .mobile-only{display:none!important}
 .field>label,.field-label{font-size:12px;font-weight:900;color:var(--ink);line-height:1.4}
 .field>label>span,.field-label>span{font-size:10px;font-weight:400;color:#7e8b95;margin-left:6px}
 .field>label>.required-note{color:#76848d;font-size:9px}
-.field input,.field select,.field textarea,#private-link{width:100%;min-height:48px;border:1px solid #cbd7df;border-radius:6px;background:#fff;color:var(--ink);padding:11px 13px;font-size:16px;line-height:1.4;transition:border-color .15s,box-shadow .15s}
+.field input,.field select,.field textarea{width:100%;min-height:48px;border:1px solid #cbd7df;border-radius:6px;background:#fff;color:var(--ink);padding:11px 13px;font-size:16px;line-height:1.4;transition:border-color .15s,box-shadow .15s}
 .field input:hover,.field select:hover,.field textarea:hover{border-color:#9eb3c1}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--navy);box-shadow:0 0 0 3px #0039650c}
 .field input::placeholder,.field textarea::placeholder{color:#8d9aa3;opacity:1}
@@ -120,20 +120,8 @@ body[data-mode=mobile] .capture-card:has(#saved-panel:not([hidden]))>.connection
 .unlocked-note>span{font-size:26px;line-height:1;color:var(--orange)}
 .unlocked-note p{font-size:13px;font-weight:900;line-height:1.45}
 .unlocked-note small{font-size:11px;color:var(--muted);font-weight:400}
-.private-access{border-top:1px solid var(--line);padding-top:22px;margin-top:25px}
-.private-access h3{font-size:18px}
-.private-access>p.mobile-only{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 16px}
-.private-access .button{font-size:12px;min-height:46px}
-.access-status{font-size:11px;color:var(--green);margin-top:10px;overflow-wrap:anywhere}
-.access-status:empty{display:none}
-.private-warning{font-size:10px;line-height:1.6;color:#7a8993;margin-top:11px}
-#private-link{font-size:11px;min-height:40px;margin-top:10px;user-select:all;background:#f7f9fa}
-.private-qr-card{display:grid;grid-template-columns:145px 1fr;align-items:center;gap:19px;margin:14px 0 18px}
-.private-qr-card strong{font-size:14px;color:var(--navy)}
-.private-qr-card p{font-size:12px;color:var(--muted);line-height:1.65;margin-top:7px}
 .qr{min-width:0;background:#fff;padding:7px;border:1px solid #dde5ea;border-radius:5px}
 .qr svg{display:block;width:100%;height:auto;background:#fff;overflow:visible;shape-rendering:crispEdges}
-#next-visitor{margin-top:25px;min-height:49px}
 
 .studio>.section-top{margin-bottom:20px}
 .studio .eyebrow{font-size:8px;line-height:1.5;margin-bottom:9px}
@@ -240,7 +228,6 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
   body[data-mode=tablet] .site-header{width:calc(100% - 48px)}
   body[data-mode=tablet] .show-tag{display:none}
   .booth-description{font-size:13px;line-height:1.7}
-  .private-qr-card{grid-template-columns:120px 1fr;gap:13px}
 }
 @media(max-width:759px){
   .site-header{width:calc(100% - 40px);min-height:68px;gap:15px}
@@ -296,9 +283,6 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
   .slot-days button{min-width:0}
   .slot-times{gap:7px}
   .slot-times button{font-size:11px}
-  .private-qr-card{grid-template-columns:124px 1fr;gap:12px}
-  .private-qr-card strong{font-size:12px}
-  .private-qr-card p{font-size:10px}
   .confirmed-panel{padding:20px 17px}
   .confirmed-panel h2{font-size:25px}
   .studio h2{font-size:26px}

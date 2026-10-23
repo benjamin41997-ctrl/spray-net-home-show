@@ -9,7 +9,7 @@ The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-h
 1. Submit just a name and phone. Email/project address are optional, and no photo or appointment is needed to save the lead.
 2. After saving, choose a consultation time and provide the required email and project address. The server confirms it in the internal calendar before unlocking the visualizer.
 3. Consultations are offered **October 26–November 8, 2026**, **every day 8:00 am–7:00 pm Eastern**. The customer sees a **one-hour** visit; internally the scheduler reserves **90 minutes** plus a **30-minute travel buffer**. The latest visit starts at **5:30 pm**. Staff blocks and existing app bookings remove unavailable times.
-4. Scan/save the private project QR/link to book or use the visualizer later on a phone. The initial public QR opens an empty mobile lead form. QR generation happens locally without sending tokens to a QR service.
+4. The booth's public QR opens an empty mobile lead form. Phones remember their own saved project. The tablet confirmation screen has no second QR, copy-link section or lower Done button; staff use the single **Next visitor** button at the top to reset it manually.
 
 Use [mobile mode](https://benjamin41997-ctrl.github.io/spray-net-home-show/?mode=mobile), [tablet mode](https://benjamin41997-ctrl.github.io/spray-net-home-show/?mode=tablet), and [owner portal](https://benjamin41997-ctrl.github.io/spray-net-home-show/admin.html) for owner scheduling/export. The owner page reuses the review portal's email/password account and saved session, with automatic refresh and no inactivity timeout. It supports consultations, blocked time, cancellation, private CSV export, Outlook calendar-file downloads, and prepared email/text confirmations. [Owner sign-in and manual sending](docs/OWNER-PORTAL.md)
 
@@ -17,7 +17,7 @@ The internal calendar does not read/sync Outlook or automatically send messages.
 
 Both contact forms support native browser autofill and local address suggestions using public NCOneMap, York County SC, and Lancaster County SC data. Only name and phone are required for a lead; address and email have no extra label. A selected address saves its city, state, and ZIP as separate CRM fields. Suggestions need no paid API account or key, and manual entry always works. See [address coverage and sources](docs/ADDRESS-AUTOCOMPLETE.md).
 
-Private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. Have visitors retain their link before clearing a tablet. No automatic project-link email/SMS or magic-link service is included.
+Existing private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. The tablet no longer displays or copies private project links. No automatic project-link email/SMS or magic-link service is included.
 
 ## Local development
 
@@ -36,7 +36,7 @@ The preview at http://localhost:4173 serves public/ and does not emulate live sa
 
 - One-page tablet/mobile capture with optional email/address, autofill hints, and retry-safe lead identity.
 - Internal availability/booking, staff blocks/cancellation, and confirmed-booking checks on all studio/media operations.
-- Local SVG QR generation, private HTTPS links, tab recovery, and shared-device reset.
+- Local SVG public QR generation, private HTTPS access, tab recovery, and shared-device reset.
 - Private JPEG/PNG/WebP uploads up to 10 MB, color/surface choices, completed-image download, and failed-image retrieval.
 - Three successful renders per normalized phone/event, atomic credits/daily attempt cap, and server-only image credentials. Failed renders restore visitor credit; attempts remain counted because charges may occur.
 - Protected CSV export, exact-origin CORS, private R2, and no customer data or runtime secrets in public assets.

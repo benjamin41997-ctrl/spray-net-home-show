@@ -492,7 +492,7 @@ async function route(request, env, config, context) {
     await requireAdmin(request, env);
     if (env.BOOKING_PROVIDER !== 'internal')
       fail(409, 'INTERNAL_SCHEDULER_REQUIRED', 'This action is available only for the internal consultation calendar.');
-    if (pathname === '/api/admin/bookings' && method === 'GET') return json(await internalBooking.listAdminSchedule(env));
+    if (pathname === '/api/admin/bookings' && method === 'GET') return json(await internalBooking.listAdminSchedule(env,{week:new URL(request.url).searchParams.get('week')??undefined}));
     if (pathname === '/api/admin/blocks' && method === 'POST')
       return json(await internalBooking.createTimeBlock(env, await readJson(request)), 201);
     if (adminBlock && method === 'DELETE') {

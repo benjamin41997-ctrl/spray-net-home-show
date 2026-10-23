@@ -9,6 +9,7 @@
   <title>Owner portal | Spray-Net South Charlotte</title>
   <link rel="icon" href="./assets/favicon.png">
   <link rel="stylesheet" href="./admin.css">
+  <link rel="stylesheet" href="./week-calendar.css">
   <script src="./config.js" defer></script>
   <script src="./admin.js" type="module"></script>
 </head>
@@ -44,9 +45,16 @@
         <nav class="lead-pagination" aria-label="Lead pages"><button id="previous-leads" class="button secondary small" type="button" data-action-button disabled>Previous</button><p id="lead-page-status" role="status"></p><button id="next-leads" class="button secondary small" type="button" data-action-button disabled>Next</button></nav>
       </section>
       <section id="calendar-panel" role="tabpanel" aria-labelledby="calendar-tab" hidden>
-      <div class="calendar-notice"><strong>Keep unavailable time up to date.</strong><p>This calendar does not read Outlook. Add your existing appointments, days off, and other unavailable time below before offering consultations.</p><p>You can download a confirmed visit for Outlook with 30 minutes added for travel. Import it manually; changes and cancellations here do not update Outlook.</p></div>
+      <section class="weekly-calendar" aria-labelledby="week-title">
+        <div class="week-toolbar"><div><p class="eyebrow">YOUR WEEK · EASTERN TIME</p><h2 id="week-title">Weekly calendar</h2><p id="week-label" role="status"></p></div><div class="week-controls"><button id="previous-week" class="button secondary small" type="button" aria-label="Previous week" data-action-button>←</button><button id="calendar-today" class="button secondary small" type="button" data-action-button>Today</button><button id="next-week" class="button secondary small" type="button" aria-label="Next week" data-action-button>→</button><label class="week-date-label">Go to date<input id="calendar-date" type="date" min="1970-01-05" max="2100-12-24" data-action-button></label></div></div>
+        <div class="week-legend"><span class="legend-booking">Consultation reservation</span><span class="legend-travel">Travel gap</span><span class="legend-block">Unavailable</span><span class="legend-pending">Pending</span></div>
+        <p class="week-help">Click an appointment for its location, directions and confirmation drafts. Travel gaps are reserved time, not calculated drive times.</p>
+        <div id="week-calendar" class="week-scroll" tabindex="0" role="region" aria-label="Weekly calendar. Scroll to see more hours or days."></div><p id="week-empty" class="activity-note" hidden>No appointments or unavailable blocks this week.</p>
+      </section>
+      <div class="calendar-notice"><strong>This is your home-show calendar.</strong><p>It includes saved consultations and staff blocks. Add outside commitments below; Outlook does not sync automatically.</p></div>
+      <details id="calendar-agenda" class="calendar-agenda"><summary>Manage consultations & unavailable time</summary>
       <div class="workspace-layout">
-        <section class="appointments-panel" aria-labelledby="appointments-title"><div class="section-title"><h2 id="appointments-title">Upcoming consultations</h2><span id="appointment-count" class="count"></span></div><p id="appointments-empty" class="empty" hidden>No upcoming consultations.</p><div id="appointments-list" class="appointments-list"></div></section>
+        <section class="appointments-panel" aria-labelledby="appointments-title"><div class="section-title"><h2 id="appointments-title">This week’s consultations</h2><span id="appointment-count" class="count"></span></div><p id="appointments-empty" class="empty" hidden>No consultations this week.</p><div id="appointments-list" class="appointments-list"></div></section>
         <aside class="availability-panel">
           <section class="block-card" aria-labelledby="block-title"><p class="eyebrow">PROTECT YOUR TIME</p><h2 id="block-title">Add unavailable time</h2><p class="muted">Block a single appointment or a longer period. This keeps it out of the times visitors can choose.</p>
             <form id="block-form" novalidate>
@@ -56,13 +64,15 @@
               <p class="muted small-text">Blocks may include time already started today and must end within 180 days. Each block can last up to 30 days.</p><button id="save-block" class="button full" type="submit" data-action-button>Add unavailable time <span aria-hidden="true">+</span></button>
             </form>
           </section>
-          <section class="blocks-panel" aria-labelledby="blocks-title"><div class="section-title"><h2 id="blocks-title">Unavailable blocks</h2><span id="block-count" class="count"></span></div><p id="blocks-empty" class="empty" hidden>No upcoming blocks. Add any time you need to keep free.</p><div id="blocks-list" class="blocks-list"></div></section>
+          <section class="blocks-panel" aria-labelledby="blocks-title"><div class="section-title"><h2 id="blocks-title">This week’s blocks</h2><span id="block-count" class="count"></span></div><p id="blocks-empty" class="empty" hidden>No blocks this week.</p><div id="blocks-list" class="blocks-list"></div></section>
         </aside>
       </div>
+      </details>
       </section>
     </div>
   </main>
   <footer class="staff-footer"><span>Spray-Net South Charlotte · Private staff access</span><a href="./?mode=tablet">Back to lead capture ↗</a></footer>
+  <dialog id="calendar-detail" class="calendar-detail" aria-labelledby="calendar-detail-title"><div class="calendar-detail-bar"><h2 id="calendar-detail-title">Appointment details</h2><button id="close-calendar-detail" class="button secondary small" type="button" aria-label="Close appointment details">Close ×</button></div><div id="calendar-detail-content"></div></dialog>
   <noscript><p class="noscript">JavaScript is required for the private owner portal.</p></noscript>
 </body>
 </html>

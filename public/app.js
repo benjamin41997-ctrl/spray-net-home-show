@@ -1,5 +1,5 @@
 import { COLORS, MAX_PHOTOS, validatePhoto, safeApiBase, privateMediaUrl } from './lib.js';
-import { createStudioLink, parseStudioAccess, sameStudioAccess } from './access.js';
+import { parseStudioAccess, sameStudioAccess } from './access.js';
 import { renderQr } from './qr.js';
 import { createCalendarFile } from './calendar.js';
 import { attachAddressAutocomplete } from './address-autocomplete.js';
@@ -49,13 +49,12 @@ async function request(path, { method = 'GET', body, token, headers = {}, timeou
 }
 function publicMobileUrl() { const u = new URL(location.pathname, location.origin); u.searchParams.set('mode', 'mobile'); return u.href; }
 $('.brand').href = `${location.pathname}?mode=${mode}`;
-function privateLink() { const u = new URL(createStudioLink(location.href, state.lead)); u.searchParams.set('mode', 'mobile'); return u.href; }
 try { if (mode === 'tablet') renderQr($('#public-mobile-qr'), publicMobileUrl(), { label: 'Scan to open our mobile lead form' }); } catch {}
 function updateRenderAvailability() {
   $('#remaining-renders').textContent = String(state.remaining);
   $('#create-render').disabled = state.busy || !unlocked() || !state.renderAvailable || (state.remaining <= 0 && !state.pendingRender);
   $('#photos').disabled = state.busy || !unlocked();
-  $('#studio-status').textContent = state.renderAvailable ? 'Your project is saved. Explore a color idea whenever you are ready.' : 'Your consultation is confirmed. Image generation is not available yet; save your private link and return later.';
+  $('#studio-status').textContent = state.renderAvailable ? 'Your project is saved. Explore a color idea whenever you are ready.' : 'Your consultation is confirmed. Image generation is unavailable right now.';
 }
 function showSaved({ focus = false } = {}) {
   void visits.record(state.lead);
@@ -63,7 +62,6 @@ function showSaved({ focus = false } = {}) {
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
   $('#saved-title').textContent=name?`Thanks, ${name}, you’re on our list.`:'Thanks, you’re on our list.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
-  $('.private-access').hidden = !confirmed; $('#next-visitor').hidden = mode!=='tablet' || !confirmed;
   const calendar = $('#download-appointment'); calendar.hidden = true;
   if (calendar.dataset.objectUrl) { release(calendar.dataset.objectUrl); delete calendar.dataset.objectUrl; calendar.removeAttribute('href'); }
   if (confirmed) {
@@ -80,10 +78,6 @@ function showSaved({ focus = false } = {}) {
     $('#booking-address').value = lead.address || ''; bookingAddress.adopt({display:lead.address || '',street:lead.address || '',city:lead.city || '',state:lead.state || '',zip:lead.zip || ''});
     $('#booking-email').value = lead.email || '';
   }
-  try {
-    const link = privateLink(); $('#private-link').value = link; $('#copy-project-link').disabled = false;
-    if (mode === 'tablet' && confirmed) renderQr($('#private-project-qr'), link, { label: 'Scan your private project link to continue on your phone' });
-  } catch { $('#copy-project-link').disabled = true; $('#private-qr-card').hidden = true; $('#access-status').textContent = 'Private project links are available on the published HTTPS site.'; }
   if (focus) $('#saved-title').focus({ preventScroll: true });
   updateRenderAvailability();
 }
@@ -123,7 +117,7 @@ async function restoreSession() {
   }
   state.pendingRender = matching?.pendingRender || null; state.completedRender = matching?.completedRender || null;
   showSaved();
-  if (state.session.booking?.status === 'pending') $('#access-status').textContent = 'Your appointment is still being verified. Reopen scheduling to check the same request.';
+  if (state.session.booking?.status === 'pending') $('#booking-status').textContent = 'Your appointment is still being verified. Reopen scheduling to check the same request.';
 }
 async function connect() {
   state.busy = true; $('#submit-lead').disabled = true;
@@ -240,11 +234,6 @@ $('#booking-form').addEventListener('submit', async event => {
     $('#booking-status').textContent = e.name === 'TimeoutError' ? 'We could not finish checking the appointment. Use Refresh to retry the same booking.' : e.message;
   } finally { state.busy = false; setBusy(button,false); }
 });
-$('#copy-project-link').addEventListener('click', async () => {
-  if (!state.lead) return;
-  try { await navigator.clipboard.writeText($('#private-link').value); $('#access-status').textContent = 'Private link copied. Save it for after the show.'; }
-  catch { $('#private-link').hidden = false; $('#private-link').focus(); $('#private-link').select(); $('#access-status').textContent = 'Copy and save this private link.'; }
-});
 function resetVisitor() {
   if (mode !== 'tablet') return;
   if (state.busy) { message('Please wait for the current request to finish before clearing this tablet.'); return; }
@@ -256,20 +245,17 @@ function clearTabletForm() {
   Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
   state.shownResults.clear(); form.reset(); $('#booking-form').reset();
   leadAddress.clear();bookingAddress.clear();
-  for (const id of ['#render-results','#studio-photos','#private-project-qr','#slot-days','#slot-times']) $(id).replaceChildren();
-  for (const id of ['#access-status','#booking-status','#render-status','#selected-time','#confirmed-time','#confirmed-address']) $(id).textContent = '';
+  for (const id of ['#render-results','#studio-photos','#slot-days','#slot-times']) $(id).replaceChildren();
+  for (const id of ['#booking-status','#render-status','#selected-time','#confirmed-time','#confirmed-address']) $(id).textContent = '';
   surfaceOptions();
-  $('#private-link').value = ''; $('#private-link').hidden = true; $('#retry-image').hidden = true;
+  $('#retry-image').hidden = true;
   $('#download-appointment').removeAttribute('href'); delete $('#download-appointment').dataset.objectUrl; $('#download-appointment').hidden = true;
   $('#lead-panel').hidden = false; $('#page-intro').hidden = true; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true;
-  $('.private-access').hidden = true; $('#next-visitor').hidden = true;
   $('#submit-lead').disabled = !state.ready; message(); $('#lead-name').focus({preventScroll:true}); window.scrollTo({top:0,behavior:'instant'});
 }
 $('#header-reset').hidden = mode !== 'tablet';
-for (const id of ['#header-reset','#next-visitor']) {
-  $(id).disabled = mode !== 'tablet';
-  if (mode === 'tablet') $(id).addEventListener('click', resetVisitor);
-}
+$('#header-reset').disabled = mode !== 'tablet';
+if (mode === 'tablet') $('#header-reset').addEventListener('click', resetVisitor);
 function studioPhotos() {
   const area = $('#studio-photos'); area.replaceChildren(); if (state.selectedPhoto >= state.photos.length) state.selectedPhoto = 0;
   state.photos.forEach((photo,i) => {

@@ -4,6 +4,7 @@
  */
 import { BookingError, bookingConfiguration as scheduleConfiguration, consultationCandidates,
   validConsultationSlot } from './booking.mjs';
+import { calendarWeekRange } from '../public/calendar-dates.js';
 export { BookingError } from './booking.mjs';
 
 const CALENDAR_KEY = 'internal:ben.hessler@spray-net.com';
@@ -154,15 +155,23 @@ export async function verifyConsultation(env, row) {
 }
 export async function listAdminSchedule(env, options = {}) {
   const config = configured(env), now = new Date(options.now ?? Date.now()).toISOString();
+  let range=null;
+  if(options.week!==undefined)try{range=calendarWeekRange(options.week);}catch{stop(400,'INVALID_CALENDAR_WEEK','Choose a valid Monday for the calendar week.');}
+  // Include an event ending just before the week when its travel gap extends
+  // into Monday. Boundaries are Eastern midnights, including the DST change.
+  const after=range?new Date(Date.parse(range.start)-config.bufferMinutes*60000).toISOString():now;
+  const bookingWhere=range?'b.start_at < ? AND b.end_at > ?':'b.end_at>=?';
+  const blockWhere=range?'start_at < ? AND end_at > ?':'end_at>=?';
+  const bindings=range?[CALENDAR_KEY,range.end,after]:[CALENDAR_KEY,now];
   const [appointments, blocked] = await Promise.all([
     env.DB.prepare(`SELECT b.*,l.first_name,l.last_name,l.phone,l.email,l.address FROM consultation_bookings b
-      JOIN leads l ON l.id=b.lead_id WHERE b.calendar_key=? AND b.status IN ('confirmed','pending') AND b.end_at>=?
-      ORDER BY b.start_at LIMIT 1001`).bind(CALENDAR_KEY,now).all(),
-    env.DB.prepare('SELECT * FROM booking_time_blocks WHERE calendar_key=? AND end_at>=? ORDER BY start_at LIMIT 1001').bind(CALENDAR_KEY,now).all(),
+      JOIN leads l ON l.id=b.lead_id WHERE b.calendar_key=? AND b.status IN ('confirmed','pending') AND ${bookingWhere}
+      ORDER BY b.start_at LIMIT 1001`).bind(...bindings).all(),
+    env.DB.prepare(`SELECT * FROM booking_time_blocks WHERE calendar_key=? AND ${blockWhere} ORDER BY start_at LIMIT 1001`).bind(...bindings).all(),
   ]);
   if (appointments.results.length > 1000 || blocked.results.length > 1000)
     stop(413, 'SCHEDULE_TOO_LARGE', 'This calendar exceeds the administrator display limit. Ask the operator for a database export.');
-  return { timeZone: config.timeZone, provider: 'internal', bookings: appointments.results.map(row => ({ leadId: row.lead_id,
+  return { timeZone: config.timeZone, provider: 'internal', week:range?.week||null,bufferMinutes:config.bufferMinutes, bookings: appointments.results.map(row => ({ leadId: row.lead_id,
     name: [row.first_name,row.last_name].filter(Boolean).join(' '), phone: row.phone, email: row.email,
     address: row.address, ...metadata(row) })), blocks: blocked.results.map(row => ({ id: row.id,start: row.start_at,end: row.end_at,note: row.note })) };
 }

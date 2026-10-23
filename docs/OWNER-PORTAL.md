@@ -14,6 +14,16 @@ Deletion is refused while a visualization or unresolved booking is running. A li
 
 Apply `backend/migrations/0005_lead_deletion_cleanup.sql` before deploying the deletion API. The cleanup manifest and lead deletion commit in one transaction; incomplete media cleanup cannot keep a phone number blocked or restore old project access.
 
+## Weekly calendar
+
+The [Calendar view](https://benjamin41997-ctrl.github.io/spray-net-home-show/admin.html?view=calendar) opens a Monday–Sunday time grid. Previous/next week, Today and Go to date navigate the private schedule. A `date=YYYY-MM-DD` URL parameter can open a particular week directly. All dates and times are Eastern, including the November clock change. The server reads the selected week, including historical entries and multi-day blocks, rather than filtering only upcoming appointments in the browser.
+
+Blue blocks show the full internal consultation reservation (normally 90 minutes), amber striped blocks show the reserved travel gap (normally 30 minutes), gray shows unavailable time, and yellow shows pending consultations. A full-day closure appears under the day heading. Overlapping items use separate columns. The calendar scrolls vertically for additional hours and horizontally on phones.
+
+Click a consultation or its travel gap to see customer contact/location details, one-hour customer time, the longer staff reservation, directions, email/text drafts and cancellation. **Route from previous consultation** uses the most recent earlier confirmed consultation with an address on that Eastern day, when available. Directions open Google Maps only when clicked; there is no automatic routing lookup or live drive-time estimate. [Google Maps URL behavior](https://developers.google.com/maps/documentation/urls/get-started).
+
+Click an unavailable block to inspect its private note or remove it. Expand **Manage consultations & unavailable time** below the grid to add blocks or use the detailed list. This view includes website bookings and saved staff blocks; it does not read or synchronize Outlook. Staff must continue adding outside commitments.
+
 ## Send confirmation from your phone
 
 Open the owner portal on your phone and sign in with your existing review-portal account. Confirmed appointments have **Draft email** and **Draft text** on both the lead card and Calendar card. Each draft includes the customer's first name, saved project address, Eastern date and one-hour customer appointment time.

@@ -179,6 +179,20 @@ test('administrator schedule contains useful contact details but public slot met
   await cancelConsultation(env,person.id); assert.equal((await listAdminSchedule(env,{now})).bookings.length,0);
 });
 
+test('administrator weekly reads include historical, overlapping and travel carryover records without leaking adjacent weeks',async()=>{
+  const env=environment(),person=lead(env);await book(env,person);
+  const insert=env.DB.sqlite.prepare('INSERT INTO booking_time_blocks(id,calendar_key,start_at,end_at,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)');
+  for(const [id,startAt,endAt] of [['previous','2026-10-26T02:45:00.000Z','2026-10-26T03:45:00.000Z'],
+    ['span','2026-10-25T04:00:00.000Z','2026-10-27T04:00:00.000Z'],
+    ['sunday','2026-11-02T04:00:00.000Z','2026-11-02T04:30:00.000Z'],
+    ['next','2026-11-02T05:00:00.000Z','2026-11-02T06:00:00.000Z']])insert.run(id,'internal:ben.hessler@spray-net.com',startAt,endAt,id,'stamp','stamp');
+  const past=await listAdminSchedule(env,{now:Date.parse('2026-12-01T12:00:00Z'),week:'2026-10-26'});
+  assert.equal(past.week,'2026-10-26');assert.equal(past.bufferMinutes,30);assert.equal(past.bookings[0].leadId,person.id);
+  assert.deepEqual(past.blocks.map(row=>row.id).sort(),['previous','span','sunday']);
+  const next=await listAdminSchedule(env,{now,week:'2026-11-02'});assert.deepEqual(next.blocks.map(row=>row.id),['next']);
+  for(const week of ['','2026-10-27','2026-02-30','2026-10-26 OR 1=1',null])await assert.rejects(listAdminSchedule(env,{now,week}),error=>error.code==='INVALID_CALENDAR_WEEK');
+});
+
 test('block bounds and booking times reject invalid dates, absent time zones and unintended long closures',async()=>{
   const env=environment(),person=lead(env);
   for(const value of ['2026-10-26T13:00:00','2026-02-30T13:00:00Z','2026-10-26T24:00:00Z'])

@@ -2,6 +2,8 @@ import { safeApiBase } from './lib.js';
 import { createCalendarFile } from './calendar.js';
 import { createOwnerAuth } from './owner-auth.js';
 import { createConfirmationTools } from './confirmation-tools.js';
+import { mondayOfWeek, addCalendarDays } from './calendar-dates.js';
+import { renderWeekCalendar, calendarWeekLabel, calendarTime, directionsLink, previousConsultation } from './week-calendar.js';
 
 const EASTERN_ZONE = 'America/New_York';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -54,7 +56,11 @@ if (typeof document !== 'undefined') initializeAdmin();
 
 function initializeAdmin() {
   const $ = selector => document.querySelector(selector);
-  const state = { busy: false, authenticated: false, generation: 0, controllers: new Set(), downloads: new Set(),leadPage:1,leadPages:1 };
+  const pageOptions=new URLSearchParams(location.search);let initialWeek=mondayOfWeek();
+  try{if(pageOptions.has('date')){const week=mondayOfWeek(pageOptions.get('date'));calendarWeekLabel(week);initialWeek=week;}}catch{}
+  const state = { busy: false, authenticated: false, generation: 0, controllers: new Set(), downloads: new Set(),leadPage:1,leadPages:1,
+    calendarWeek:initialWeek,calendarData:null };
+  const initialTab=pageOptions.get('view')==='calendar'?'calendar':'leads';
   let apiBase = '', auth = null;
   try { apiBase = safeApiBase(window.SPRAYNET_CONFIG?.apiBase, location.origin); } catch {}
   try { auth = createOwnerAuth(window.SPRAYNET_CONFIG,location.origin); } catch {}
@@ -62,6 +68,7 @@ function initializeAdmin() {
     const box = $('#admin-message'); box.textContent = text; box.hidden = !text; box.classList.toggle('success', success);
   };
   function clearCalendar() {
+    closeCalendarDetail();state.calendarData=null;$('#week-calendar').replaceChildren();$('#week-empty').hidden=true;
     $('#appointments-list').replaceChildren(); $('#blocks-list').replaceChildren();
     $('#appointment-count').textContent = ''; $('#block-count').textContent = '';
     $('#appointments-empty').hidden = true; $('#blocks-empty').hidden = true; $('#calendar-status').textContent = '';
@@ -77,6 +84,7 @@ function initializeAdmin() {
     for (const button of document.querySelectorAll('[data-action-button]')) button.disabled = value;
     for (const link of document.querySelectorAll('.confirmation-actions a')) link.setAttribute('aria-disabled',String(value));
     $('#lead-stage').disabled=value;$('#previous-leads').disabled=value || state.leadPage<=1;
+    $('#calendar-date').disabled=value;
     $('#next-leads').disabled=value || state.leadPage>=state.leadPages;
     if (label) $('#calendar-status').textContent = label;
   }
@@ -159,6 +167,14 @@ function initializeAdmin() {
     return createConfirmationTools(appointment,{document,device:navigator,clipboard:navigator.clipboard,
       isActive:()=>state.authenticated && !state.busy && generation===state.generation});
   }
+  function closeCalendarDetail() {
+    const dialog=$('#calendar-detail');if(dialog.open)dialog.close();$('#calendar-detail-content').replaceChildren();
+  }
+  function openCalendarDetail({kind,record}) {
+    if(!state.authenticated||state.busy)return;
+    closeCalendarDetail();$('#calendar-detail-title').textContent=kind==='block'?'Unavailable time':'Consultation details';
+    $('#calendar-detail-content').append(kind==='block'?blockCard(record):appointmentCard(record));$('#calendar-detail').showModal();
+  }
   function showTab(view,focus=false) {
     for (const name of ['leads','calendar']) {
       const active=name===view,tab=$(`#${name}-tab`);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
@@ -206,21 +222,29 @@ function initializeAdmin() {
     $('#lead-activity-note').textContent='Visits count saved-project page opens, including the first submission. Reloading counts as another visit; steps within the same page do not. Stages reflect saved bookings, uploads and completed renders.'+since
       +(data.pendingMediaCleanups?' Some deleted-project files are waiting for cleanup. Refresh the portal to retry.':'');
   }
-  function renderCalendar(data) {
-    if (!data || !Array.isArray(data.bookings) || !Array.isArray(data.blocks)) throw new Error('INVALID_CALENDAR_RESPONSE');
-    for (const row of data.bookings) if (!row || !UUID.test(row.leadId) || !validInstant(row.start) || !validInstant(row.end)
-      || !['confirmed', 'pending'].includes(row.status)) throw new Error('INVALID_CALENDAR_RESPONSE');
-    for (const row of data.blocks) if (!row || !UUID.test(row.id) || !validInstant(row.start) || !validInstant(row.end))
-      throw new Error('INVALID_CALENDAR_RESPONSE');
-    clearCalendar();
-    const appointments = [...data.bookings].sort((left, right) => Date.parse(left.start) - Date.parse(right.start));
-    for (const appointment of appointments) {
+  function appointmentCard(appointment) {
       const card = element('article', 'appointment');
       card.append(element('p', 'appointment-time', `${formatEasternInstant(appointment.start)} – ${formatEasternInstant(appointment.end)}`));
       const heading = element('div', 'appointment-heading');
       heading.append(element('h3', '', appointment.name || 'Home show visitor'), element('span', `badge${appointment.status === 'pending' ? ' pending' : ''}`, appointment.status === 'pending' ? 'PENDING' : 'CONFIRMED'));
       card.append(heading, detail('Phone', appointment.phone, true), detail('Project address', appointment.address));
       if (appointment.email) card.append(detail('Email', appointment.email));
+      const end=Date.parse(appointment.end),customerEnd=new Date(Math.min(end,Date.parse(appointment.start)+3600000)).toISOString();
+      const travelEnd=new Date(end+(state.calendarData?.bufferMinutes??30)*60000).toISOString();
+      card.append(detail('Customer appointment',`${calendarTime(appointment.start)}–${calendarTime(customerEnd)} Eastern`),
+        detail('Staff reservation',`${calendarTime(appointment.start)}–${calendarTime(appointment.end)} Eastern`),
+        detail('Travel gap after visit',`${calendarTime(appointment.end)}–${calendarTime(travelEnd)} Eastern`));
+      if(appointment.address?.trim()) {
+        const routes=element('div','appointment-directions'),link=element('a','button secondary small','Directions to project');
+        link.href=directionsLink(appointment.address);link.target='_blank';link.rel='noopener noreferrer';routes.append(link);
+        const previous=previousConsultation(appointment,state.calendarData?.bookings||[]);
+        if(previous) {
+          const route=element('a','button secondary small','Route from previous consultation');route.href=directionsLink(appointment.address,previous.address);
+          route.target='_blank';route.rel='noopener noreferrer';routes.append(route);
+          card.append(detail('Previous consultation',`${previous.name} · ${previous.address}`));
+        }
+        card.append(routes);
+      }
       const actions = element('div', 'appointment-actions'), cancel = element('button', 'danger-button', 'Cancel consultation');
       if (appointment.status === 'confirmed') {
         card.append(confirmationTools(appointment));
@@ -239,30 +263,47 @@ function initializeAdmin() {
       }
       cancel.type = 'button'; cancel.setAttribute('data-action-button', '');
       cancel.addEventListener('click', () => {
-        if (state.busy || !confirm(`Cancel the consultation for ${appointment.name || 'this visitor'} on ${formatEasternInstant(appointment.start)}? Their visualizer access will be locked.`)) return;
+        if (state.busy || !state.authenticated || !confirm(`Cancel the consultation for ${appointment.name || 'this visitor'} on ${formatEasternInstant(appointment.start)}? Their visualizer access will be locked.`)) return;
+        closeCalendarDetail();
         mutate(`/api/admin/bookings/${appointment.leadId}/cancel`, 'POST', undefined, 'Consultation cancelled.');
       });
-      actions.append(cancel); card.append(actions); $('#appointments-list').append(card);
-    }
-    const blocks = [...data.blocks].sort((left, right) => Date.parse(left.start) - Date.parse(right.start));
-    for (const block of blocks) {
+      actions.append(cancel);card.append(actions);return card;
+  }
+  function blockCard(block) {
       const card = element('article', 'block-entry');
       card.append(element('p', '', `${formatEasternInstant(block.start)} – ${formatEasternInstant(block.end)}`));
       if (block.note) card.append(element('p', 'block-note', block.note));
       const remove = element('button', 'danger-button', 'Remove block'); remove.type = 'button'; remove.setAttribute('data-action-button', '');
       remove.addEventListener('click', () => {
-        if (state.busy || !confirm('Remove this unavailable block? Its times may become bookable.')) return;
+        if (state.busy || !state.authenticated || !confirm('Remove this unavailable block? Its times may become bookable.')) return;
+        closeCalendarDetail();
         mutate(`/api/admin/blocks/${block.id}`, 'DELETE', undefined, 'Unavailable block removed.');
       });
-      card.append(remove); $('#blocks-list').append(card);
-    }
+      card.append(remove);return card;
+  }
+  function renderCalendar(data) {
+    if (!data || !Array.isArray(data.bookings) || !Array.isArray(data.blocks) || data.week!==state.calendarWeek
+      || !Number.isInteger(data.bufferMinutes) || data.bufferMinutes<0 || data.bufferMinutes>180) throw new Error('INVALID_CALENDAR_RESPONSE');
+    for (const row of data.bookings) if (!row || !UUID.test(row.leadId) || !validInstant(row.start) || !validInstant(row.end) || Date.parse(row.end)<=Date.parse(row.start)
+      || !['confirmed', 'pending'].includes(row.status)) throw new Error('INVALID_CALENDAR_RESPONSE');
+    for (const row of data.blocks) if (!row || !UUID.test(row.id) || !validInstant(row.start) || !validInstant(row.end) || Date.parse(row.end)<=Date.parse(row.start))throw new Error('INVALID_CALENDAR_RESPONSE');
+    clearCalendar();state.calendarData=data;
+    const generation=state.generation;
+    renderWeekCalendar($('#week-calendar'),data,{week:state.calendarWeek,onSelect:openCalendarDetail,
+      isActive:()=>state.authenticated&&!state.busy&&generation===state.generation&&state.calendarData===data});
+    $('#week-label').textContent=calendarWeekLabel(state.calendarWeek);$('#calendar-date').value=state.calendarWeek;
+    $('#week-empty').hidden=data.bookings.length+data.blocks.length>0;
+    const appointments=[...data.bookings].sort((a,b)=>Date.parse(a.start)-Date.parse(b.start)),blocks=[...data.blocks].sort((a,b)=>Date.parse(a.start)-Date.parse(b.start));
+    for(const appointment of appointments)$('#appointments-list').append(appointmentCard(appointment));
+    for(const block of blocks)$('#blocks-list').append(blockCard(block));
     $('#appointment-count').textContent = String(appointments.length); $('#block-count').textContent = String(blocks.length);
     $('#appointments-empty').hidden = appointments.length > 0; $('#blocks-empty').hidden = blocks.length > 0;
     $('#calendar-status').textContent = `Updated ${new Intl.DateTimeFormat('en-US', { timeZone: EASTERN_ZONE, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date())} · Eastern Time`;
   }
   async function loadCalendar(generation = state.generation) {
     clearCalendar(); $('#calendar-status').textContent = 'Loading the private calendar…';
-    const data = await request('/api/admin/bookings');
+    $('#week-label').textContent=calendarWeekLabel(state.calendarWeek);$('#calendar-date').value=state.calendarWeek;
+    const data = await request('/api/admin/bookings?week='+encodeURIComponent(state.calendarWeek));
     if (generation !== state.generation) return false;
     renderCalendar(data); return true;
   }
@@ -307,7 +348,7 @@ function initializeAdmin() {
       if (generation !== state.generation) return;
       if (await loadWorkspace(generation)) {
         state.authenticated = true; $('#sign-in-panel').hidden = true; $('#calendar-workspace').hidden = false; $('#sign-out').hidden = false;
-        message();showTab('leads',true);
+        message();showTab(initialTab,true);
       }
     } catch (error) {
       if (generation === state.generation) {
@@ -328,7 +369,7 @@ function initializeAdmin() {
       if (!token) { message(); return; }
       if (await loadWorkspace(generation)) {
         state.authenticated=true; $('#sign-in-panel').hidden=true; $('#calendar-workspace').hidden=false; $('#sign-out').hidden=false;
-        message();
+        message();showTab(initialTab);
       }
     } catch (error) {
       if (generation === state.generation) {
@@ -337,6 +378,20 @@ function initializeAdmin() {
     } finally { if (generation === state.generation) busy(false); }
   }
   $('#retry-sign-in').addEventListener('click',restoreAccess);
+  async function changeCalendarWeek(value,offset=0) {
+    if(state.busy||!state.authenticated)return;
+    let week;try{week=addCalendarDays(mondayOfWeek(value),offset);calendarWeekLabel(week);}catch{message('Choose a valid calendar date.');return;}
+    if(week===state.calendarWeek)return;
+    state.calendarWeek=week;const generation=state.generation;busy(true);message();
+    try{await loadCalendar(generation);}catch(error){if(generation===state.generation)handleFailure(error);}
+    finally{if(generation===state.generation)busy(false);}
+  }
+  $('#previous-week').addEventListener('click',()=>changeCalendarWeek(state.calendarWeek,-7));
+  $('#next-week').addEventListener('click',()=>changeCalendarWeek(state.calendarWeek,7));
+  $('#calendar-today').addEventListener('click',()=>changeCalendarWeek(Date.now()));
+  $('#calendar-date').addEventListener('change',event=>changeCalendarWeek(event.target.value));
+  $('#close-calendar-detail').addEventListener('click',closeCalendarDetail);
+  $('#calendar-detail').addEventListener('close',()=>{if(!$('#calendar-detail').open)$('#calendar-detail-content').replaceChildren();});
   $('#refresh-calendar').addEventListener('click', async () => {
     if (state.busy || !state.authenticated) return;
     const generation = state.generation; busy(true); message();
