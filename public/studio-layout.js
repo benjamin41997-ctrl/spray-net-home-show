@@ -1,9 +1,9 @@
-/** Move the existing private media nodes, never copies, into the tablet's left
- * column. Phone/narrow layouts and closed studios restore their original homes. */
-export function createStudioLayout({mode,studio,photos,results,photoHome,resultHome,sidebar,photoDock,resultDock,media=window.matchMedia('(min-width: 760px)')}){
+/** The tablet uses full-width controls above its preview gallery. Move the
+ * existing QR/result nodes, never copies; restore them when the studio closes. */
+export function createStudioLayout({mode,studio,results,resultHome,sidebar,resultDock,qr,qrHome,qrDock,media=window.matchMedia('(min-width: 760px)')}){
   function sync(){
     const docked=mode==='tablet'&&media.matches&&!studio.hidden;
-    for(const [node,target] of [[photos,docked?photoDock:photoHome],[results,docked?resultDock:resultHome]])
+    for(const [node,target] of [[qr,docked?qrDock:qrHome],[results,docked?resultDock:resultHome]])
       if(node.parentElement!==target)target.append(node);
     sidebar.hidden=!docked;
   }

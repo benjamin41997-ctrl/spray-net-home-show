@@ -18,7 +18,7 @@ const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAl
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
 document.body.dataset.mode = mode;
 setupTabletApp({mode,button:$('#install-app'),dialog:$('#install-dialog'),install:$('#install-native'),fullscreen:$('#install-fullscreen'),close:$('#close-install'),status:$('#install-status')});
-const studioLayout=createStudioLayout({mode,studio:$('#studio'),photos:$('#studio-photos'),results:$('#render-results'),photoHome:$('#studio-photo-home'),resultHome:$('#studio-result-home'),sidebar:$('#tablet-studio-media'),photoDock:$('#tablet-photo-dock'),resultDock:$('#tablet-render-dock')});
+const studioLayout=createStudioLayout({mode,studio:$('#studio'),results:$('#render-results'),resultHome:$('#studio-result-home'),sidebar:$('#tablet-studio-media'),resultDock:$('#tablet-render-dock'),qr:$('.public-qr-card'),qrHome:$('.booth-intro'),qrDock:$('#studio-qr-dock')});
 let tabStorage,persistentStorage;try{tabStorage=sessionStorage;persistentStorage=localStorage;}catch{}
 const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
