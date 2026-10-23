@@ -316,7 +316,7 @@ test('activity migration is additive, repeatable and preserves old leads without
 
 test('readiness fails closed for missing bindings, secrets, schema; CORS requires exact origins', async () => {
   const unconfigured = await request({}, '/api/health', { headers: { Origin: '' } });
-  assert.deepEqual(await unconfigured.json(), { ready: false, renderAvailable: false, freeRenders: 3,
+  assert.deepEqual(await unconfigured.json(), { ready: false, renderAvailable: false, freeRenders: 5,
     addressSuggestionsAvailable: false, bookingAvailable: false, consultationMinutes: 90, travelBufferMinutes: 30, timeZone: 'America/New_York' });
   assert.equal(configuration(environment({ RATE_LIMIT_SALT: 'REPLACE_WITH_RANDOM_RATE_LIMIT_SALT' })).ready, false);
   const env = environment();
@@ -486,6 +486,8 @@ test('phone identity migration preserves duplicate-phone legacy leads, tokens an
     .replace('UNIQUE (lead_identity, event_id)', 'UNIQUE (email_normalized, event_id)')
     .replace('CREATE INDEX IF NOT EXISTS leads_phone_event ON leads(phone_normalized, event_id);', '');
   const env = environment({ DB: database(legacySchema) });
+  // This fixture represents a database predating durable quota accounting.
+  env.DB.sqlite.exec('DROP TRIGGER render_limits; DROP TRIGGER render_reserve; DROP TRIGGER render_refund;');
   const owners = [];
   for (let n = 0; n < 2; n++) {
     const person = { id: crypto.randomUUID(), token: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url') };
@@ -503,6 +505,7 @@ test('phone identity migration preserves duplicate-phone legacy leads, tokens an
   env.DB.sqlite.prepare("UPDATE renders SET status='completed',object_key=?,mime_type='image/jpeg' WHERE id=?").run(renderKey, renderId);
   await env.PHOTOS.put(photoKey, jpeg); await env.PHOTOS.put(renderKey, jpeg);
   env.DB.sqlite.exec(readFileSync(new URL('../backend/migrations/0002_phone_identity_booking.sql', import.meta.url), 'utf8'));
+  env.DB.sqlite.exec(readFileSync(new URL('../backend/migrations/0007_durable_render_quotas.sql', import.meta.url), 'utf8'));
   for (const owner of owners) {
     const row = env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(owner.id);
     assert.equal(row.token_hash, owner.tokenHash); assert.equal(row.phone_normalized, '17045550199');
@@ -960,6 +963,64 @@ test('concurrent render requests reserve credits atomically and enforce three to
   assert.equal(env.DB.sqlite.prepare('SELECT remaining_renders FROM leads').get().remaining_renders, 0);
   assert.equal(env.DB.sqlite.prepare('SELECT attempts FROM daily_attempts').get().attempts, 3);
 });
+
+test('five server credits survive reopening, counter tampering and owner deletion/recreation with the same normalized phone',async()=>{
+  const env=environment({FREE_RENDERS:'5'}),person=await lead(env),uploaded=await photo(env,person);let calls=0;
+  const path=`/api/leads/${person.id}/renders`;
+  await withFetch(async()=>{calls++;return renderedResponse();},async()=>{
+    const response=await request(env,path,{method:'POST',body:settings(uploaded.id),token:person.token,key:'durable-credit-first'});
+    assert.equal(response.status,201);assert.equal((await response.json()).remainingRenders,4);
+    for(let index=0;index<3;index++) {
+      env.DB.sqlite.prepare('UPDATE leads SET remaining_renders=999 WHERE id=?').run(person.id);
+      const reopened=await(await request(env,`/api/leads/${person.id}/session`,{token:person.token})).json();assert.equal(reopened.remainingRenders,4);assert.equal(reopened.renderAllowance,5);
+    }
+  });
+  env.DB.sqlite.prepare('UPDATE consultation_bookings SET calendar_key=? WHERE lead_id=?').run('internal:ben.hessler@spray-net.com',person.id);
+  assert.equal((await request(env,`/api/admin/leads/${person.id}`,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN})).status,200);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM renders').get().n,0);
+  const quota=env.DB.sqlite.prepare('SELECT * FROM render_quotas').get();assert.equal(quota.consumed,1);assert.equal(quota.attempts,1);
+  assert.ok(!JSON.stringify(quota).includes('5551234567'));assert.ok(!JSON.stringify(quota).includes('Alex'));
+  const recreated=await lead(env,{...sample(),email:'different@example.com',phone:'+1 555 123 4567'});
+  assert.notEqual(recreated.id,person.id);assert.equal(recreated.remainingRenders,4);
+  const newPhoto=await photo(env,recreated);
+  await withFetch(async()=>{calls++;return renderedResponse();},async()=>{
+    const responses=await Promise.all(Array.from({length:5},(_,index)=>request(env,`/api/leads/${recreated.id}/renders`,{
+      method:'POST',body:{...settings(newPhoto.id),remainingRenders:999,freeRenders:999},token:recreated.token,key:'durable-more-'+index})));
+    assert.deepEqual(responses.map(row=>row.status).sort(),[201,201,201,201,429]);
+  });assert.equal(calls,5);
+  assert.equal((await(await request(env,`/api/leads/${recreated.id}/session`,{token:recreated.token})).json()).remainingRenders,0);
+});
+
+test('failed render retries cannot bypass per-phone attempt caps or the event-wide cap, including across deleted leads',async()=>{
+  const env=environment({FREE_RENDERS:'5',PHONE_RENDER_ATTEMPT_LIMIT:'2',EVENT_RENDER_LIMIT:'3'}),person=await lead(env),uploaded=await photo(env,person);let calls=0;
+  await withFetch(async()=>{calls++;return new Response('{}',{status:500});},async()=>{
+    for(let index=0;index<2;index++)assert.equal((await request(env,`/api/leads/${person.id}/renders`,{method:'POST',body:settings(uploaded.id),token:person.token,key:'failed-attempt-'+index})).status,502);
+    const exhausted=await request(env,`/api/leads/${person.id}/renders`,{method:'POST',body:settings(uploaded.id),token:person.token,key:'failed-attempt-3'});
+    assert.equal(exhausted.status,429);assert.equal((await exhausted.json()).error.code,'PHONE_ATTEMPT_CAP');
+  });assert.equal(calls,2);
+  env.DB.sqlite.prepare('UPDATE consultation_bookings SET calendar_key=? WHERE lead_id=?').run('internal:ben.hessler@spray-net.com',person.id);
+  await request(env,`/api/admin/leads/${person.id}`,{method:'DELETE',body:{confirmation:'DELETE'},token:env.ADMIN_TOKEN});
+  const recreated=await lead(env);assert.equal(recreated.remainingRenders,5);assert.equal(recreated.renderAttemptsRemaining,0);
+  const another=await lead(env,{...sample(),phone:'7045550100'}),photo2=await photo(env,another);
+  await withFetch(async()=>{calls++;return renderedResponse();},async()=>{
+    assert.equal((await request(env,`/api/leads/${another.id}/renders`,{method:'POST',body:settings(photo2.id),token:another.token,key:'event-last-attempt'})).status,201);
+    const capped=await request(env,`/api/leads/${another.id}/renders`,{method:'POST',body:settings(photo2.id),token:another.token,key:'event-over-cap'});
+    assert.equal(capped.status,429);assert.equal((await capped.json()).error.code,'EVENT_CAP');
+  });assert.equal(calls,3);assert.equal(env.DB.sqlite.prepare('SELECT attempts FROM render_event_usage').get().attempts,3);
+});
+
+test('quota migration grants five total without resetting used credits and remains repeatable after more renders',async()=>{
+  const env=environment({FREE_RENDERS:'3'}),person=await lead(env),uploaded=await photo(env,person);
+  const migration=readFileSync(new URL('../backend/migrations/0007_durable_render_quotas.sql',import.meta.url),'utf8');
+  await withFetch(async()=>renderedResponse(),async()=>{
+    await request(env,`/api/leads/${person.id}/renders`,{method:'POST',body:settings(uploaded.id),token:person.token,key:'before-quota-migration'});
+    env.DB.sqlite.exec(migration);env.FREE_RENDERS='5';
+    assert.equal((await(await request(env,`/api/leads/${person.id}/session`,{token:person.token})).json()).remainingRenders,4);
+    await request(env,`/api/leads/${person.id}/renders`,{method:'POST',body:settings(uploaded.id),token:person.token,key:'after-quota-migration'});
+    env.DB.sqlite.exec(migration);env.DB.sqlite.exec(migration);
+    assert.equal((await(await request(env,`/api/leads/${person.id}/session`,{token:person.token})).json()).remainingRenders,3);
+  });
+});
 test('multiple selected surfaces reach the rendering adapter together and consume one credit, with idempotent retries',async()=>{
   const env=environment(),person=await lead(env),uploaded=await photo(env,person);let calls=0;
   const body={...settings(uploaded.id),surfaces:['Windows','Siding','Fascia']};delete body.surface;
@@ -1116,7 +1177,7 @@ test('renderer adapter uses server secrets and validates inline output; no URL f
   const openai = { ...env, RENDER_API_URL: '', RENDER_API_KEY: '', OPENAI_API_KEY: 'server-only-openai-key' };
   await callRenderer(openai, { bytes: jpeg, mime: 'image/jpeg' }, { ...settings('photo'), surface: 'Cabinets' }, async (url, init) => {
     assert.equal(url, 'https://api.openai.com/v1/images/edits'); assert.ok(init.body instanceof FormData);
-    assert.equal(init.body.get('model'), 'gpt-image-1.5'); assert.equal(init.body.get('n'), '1');
+    assert.equal(init.body.get('model'), 'gpt-image-2.5-sunburst'); assert.equal(init.body.get('n'), '1');
     assert.equal(init.body.get('image[]').type, 'image/jpeg');
     assert.match(init.body.get('prompt'), /Change only the Cabinets/);
     assert.match(init.body.get('prompt'), /Preserve the exact scene geometry/);

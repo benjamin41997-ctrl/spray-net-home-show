@@ -6,7 +6,7 @@ window.SPRAYNET_CONFIG = Object.freeze({
   brand: 'Spray-Net',
   location: 'South Charlotte',
   event: 'Home Show',
-  freeRenders: 3,
+  freeRenders: 5,
   portfolioUrl: 'https://benjamin41997-ctrl.github.io/spray-net-portfolio/',
   bookingUrl: '',
   privacyUrl: ''

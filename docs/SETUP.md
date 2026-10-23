@@ -8,12 +8,12 @@ Visitors submit name/phone, with optional email/address, then book a consultatio
 
 Consultations start **Monday, October 26, 2026** (BOOKING_START_DATE=2026-10-26), run **90 minutes**, **all seven days 8:00 am–7:00 pm Eastern**, with **30-minute travel gaps**. Latest visit start is **5:30 pm**. Actual outside appointments are staff blocks; Outlook placeholders named “BLOCK” are intentionally left bookable, per the user's schedule instructions.
 
-The user's rendering key is configured privately, and an authorized real image test completed successfully. Three successful renders per normalized phone/event and 50 daily provider attempts are enforced server-side. RENDER_ENABLED=true enables generation; false pauses it without changing lead capture or scheduling.
+The user's rendering key is configured privately, and an authorized GPT Image 2.5 Sunburst edit completed successfully. Five successful renders per normalized phone/event, ten attempts per phone/event, 50 daily attempts sitewide, and 500 attempts per event sitewide are enforced server-side. Durable usage survives lead deletion; failed requests restore the credit but still count toward attempt caps. RENDER_ENABLED=true enables generation; false pauses it without changing lead capture or scheduling.
 
 ## Frontend and modes
 
 - ?mode=mobile is the visitor phone layout and default.
-- ?mode=tablet is the staffed kiosk; its public QR opens the same page origin/path with ?mode=mobile.
+- ?mode=tablet is the staffed kiosk; its single QR opens public mobile capture initially, then the active visitor's private project after submission. Next visitor restores the public QR.
 - admin.html is the owner calendar/export page, protected by the existing review-portal account.
 - Private project QR/links resume an existing lead. Their #studio= fragment carries bearer access and never bypasses booking checks.
 
@@ -35,8 +35,11 @@ Existing production resources are already recorded in backend/wrangler.jsonc. Do
 | --- | --- |
 | ALLOWED_ORIGINS | Exact page origin, without path or trailing slash. |
 | EVENT_ID | Stable per-show credit/deduplication boundary. |
-| FREE_RENDERS | 3 per normalized phone/event. |
+| FREE_RENDERS | 5 successful renders per normalized phone/event. |
+| PHONE_RENDER_ATTEMPT_LIMIT | 10 attempts per normalized phone/event, including failed requests. |
 | DAILY_RENDER_LIMIT | 50 provider attempts per UTC day. |
+| EVENT_RENDER_LIMIT | 500 attempts per event sitewide. |
+| OPENAI_IMAGE_MODEL | gpt-image-2.5-sunburst |
 | LEADS_PER_IP_HOUR | 300 for venue/shared IPs. |
 | BOOKING_PROVIDER | internal |
 | BOOKING_START_DATE | 2026-10-26 |
@@ -68,6 +71,8 @@ npx wrangler d1 execute spray-net-home-show --remote --file backend/migrations/0
 ~~~
 
 Review recovery state and schema first, and never drop the operating lead table. Fresh current schema.sql already includes the internal table.
+
+Existing databases also need `0007_durable_render_quotas.sql` before deploying the matching Worker. It preserves used renders when increasing the allowance from three to five. The Worker enrolls legacy phone/event usage before a session, render, or owner deletion; the minimal hashed quota records survive deletion of lead/media records. Fresh current schema.sql already includes these quota tables and triggers. See [VISUALIZER.md](VISUALIZER.md) for migration and limit details.
 
 ~~~sh
 npx wrangler deploy --config backend/wrangler.jsonc

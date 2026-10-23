@@ -10,6 +10,7 @@ import { OwnerError, recordProjectVisit, listOwnerLeads, deleteOwnerLead, markCo
 import { OwnerAuthError, requireOwner } from './owner-auth.mjs';
 import { selectedSurfaces } from '../public/project-options.js';
 import { customRenderPrompt } from '../public/render-settings.js';
+import { ensureRenderQuota,readRenderQuota } from './render-quota.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -38,7 +39,8 @@ export function configuration(env) {
   const custom = Boolean(env.RENDER_API_URL && env.RENDER_API_KEY && validHttps(env.RENDER_API_URL));
   const renderEnabled = String(env.RENDER_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
   return { origins, ready, renderEnabled, renderAvailable: ready && renderEnabled && Boolean(customRequested ? custom : env.OPENAI_API_KEY), custom, customRequested,
-    freeRenders: int(env.FREE_RENDERS, 3, 10), dailyLimit: int(env.DAILY_RENDER_LIMIT, 50, 5000),
+    freeRenders: int(env.FREE_RENDERS, 5, 10), dailyLimit: int(env.DAILY_RENDER_LIMIT, 50, 5000),
+    phoneRenderAttemptLimit:int(env.PHONE_RENDER_ATTEMPT_LIMIT,10,50),eventRenderLimit:int(env.EVENT_RENDER_LIMIT,500,5000),
     leadsPerHour: int(env.LEADS_PER_IP_HOUR, 30, 1000),
     timeout: Math.max(1000, int(env.RENDER_TIMEOUT_MS, 90000, 120000)),
     eventId: String(env.EVENT_ID || 'home-show-2026') };
@@ -144,6 +146,7 @@ async function leadFor(request, env, id) {
   const tokenHash = await hash(bearer(request));
   const lead = await env.DB.prepare('SELECT * FROM leads WHERE id = ? AND token_hash = ?').bind(id, tokenHash).first();
   if (!lead) fail(401, 'UNAUTHORIZED', 'Your session is unavailable. Please ask the booth team for help.');
+  await ensureRenderQuota(env,lead,configuration(env));
   return lead;
 }
 function publicLead(lead) {
@@ -207,11 +210,13 @@ async function createLead(request, env, config) {
       WHERE phone_normalized=? AND event_id=? ORDER BY CASE WHEN lead_identity=? THEN 0 ELSE 1 END,created_at,id LIMIT 1`)
       .bind(normalizedPhone, config.eventId, identity).first();
   }
-  function duplicateResponse(existing) {
+  async function duplicateResponse(existing) {
     if (clientToken && requestKey && existing && existing.token_hash === tokenHash
       && existing.request_key === requestKey && existing.input_hash === inputHash)
-      return json({ id: existing.id, token: accessToken, remainingRenders: existing.remaining_renders,
+      {const quota=await ensureRenderQuota(env,{...lead,id:existing.id,event_id:config.eventId,phone_normalized:normalizedPhone},config);
+      return json({ id: existing.id, token: accessToken, ...quota,
         consultationPreference: existing.consultation_preference, booking: { status: 'none' }, visualizerUnlocked: false }, 200);
+      }
     fail(409, 'ALREADY_REGISTERED', 'This phone number is already registered for this event. Use your saved project link or ask the booth team for help.');
   }
   const existing = await existingLead();
@@ -230,7 +235,8 @@ async function createLead(request, env, config) {
     }
     throw error;
   }
-  return json({ id, token: accessToken, remainingRenders: config.freeRenders,
+  const quota=await ensureRenderQuota(env,{id,event_id:config.eventId,phone_normalized:normalizedPhone},config);
+  return json({ id, token: accessToken, ...quota,
     consultationPreference: lead.consultationPreference, booking: { status: 'none' }, visualizerUnlocked: false }, 201);
 }
 async function uploadPhoto(request, env, lead) {
@@ -331,7 +337,7 @@ export async function callRenderer(env, photo, settings, fetcher = fetch) {
       url = 'https://api.openai.com/v1/images/edits';
       const body = new FormData();
       body.append('image[]', new Blob([photo.bytes], { type: photo.mime }), `home.${photo.mime.split('/')[1]}`);
-      body.append('model', env.OPENAI_IMAGE_MODEL || 'gpt-image-1.5');
+      body.append('model', env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-sunburst');
       const custom=customRenderPrompt(settings.customPrompt);
       body.append('prompt', `Create a realistic surface-refinishing color visualization of the supplied home or interior photo. Change only the ${settings.surface} to ${settings.colorName}, approximately ${settings.colorHex}. Apply this color to every selected surface that is visible, unless the homeowner requests different colors or finishes for those selected surfaces below. For windows, recolor only the frames and trim, preserving the glass. Preserve the exact scene geometry, perspective, layout, fixtures, architecture, surroundings, lighting and all other surfaces. Preserve shadows and material texture. No text, labels, logo or watermark. This is a color concept, not a construction plan.${custom?`\n\nHomeowner refinishing preferences (apply within the selected surfaces, with specific requested colors/finishes taking precedence over the default color):\n${JSON.stringify(custom)}`:''}`);
       body.append('n', '1'); body.append('quality', 'low'); body.append('size', '1024x1024'); body.append('output_format', 'jpeg');
@@ -356,8 +362,8 @@ async function settleStale(env, leadId) {
     WHERE lead_id=? AND status='pending' AND updated_at < ?`).bind(new Date().toISOString(), leadId, cutoff).run();
 }
 async function renderResponse(env, leadId, render, status = 200) {
-  const lead = await env.DB.prepare('SELECT remaining_renders FROM leads WHERE id=?').bind(leadId).first();
-  return json({ id: render.id, status: render.status, remainingRenders: lead.remaining_renders,
+  const quota=await readRenderQuota(env,leadId);
+  return json({ id: render.id, status: render.status, ...quota,
     ...(render.status === 'completed' ? { imageUrl: `/api/leads/${leadId}/renders/${render.id}/image` } : {}),
     ...(render.status === 'failed' ? { error: { code: render.error_code || 'RENDER_FAILED', message: renderFailureMessage(render.error_code) } } : {}),
   }, status);
@@ -396,6 +402,8 @@ async function createRender(request, env, config, lead) {
       .bind(id, lead.id, photoId, requestKey, inputHash, now.slice(0, 10), config.dailyLimit, customPrompt?'Custom preview':colorName, colorHex, surface, now, now).run();
   } catch (error) {
     if (/NO_CREDITS/.test(String(error))) fail(429, 'NO_CREDITS', 'You have used the free previews for this event. Your project details are saved.');
+    if (/PHONE_ATTEMPT_CAP/.test(String(error))) fail(429,'PHONE_ATTEMPT_CAP','This project has reached its preview attempt limit. Please contact the team for help.');
+    if (/EVENT_CAP/.test(String(error))) fail(429,'EVENT_CAP','The home-show preview limit has been reached. Please contact the team about your project.');
     if (/DAILY_CAP/.test(String(error))) fail(429, 'DAILY_CAP', 'Today’s preview limit has been reached. Please ask the booth team about your project.');
     if (/UNIQUE constraint/.test(String(error))) {
       const duplicate = await env.DB.prepare('SELECT * FROM renders WHERE lead_id=? AND request_key=?').bind(lead.id, requestKey).first();
@@ -496,6 +504,8 @@ async function route(request, env, config, context) {
     const body=await readJson(request);
     if(body?.confirmation!=='DELETE')fail(400,'DELETE_CONFIRMATION_REQUIRED','Confirm deletion of this lead.');
     await settleStale(env,adminLead[1].toLowerCase());
+    const deletingLead=await env.DB.prepare('SELECT id,event_id,phone_normalized FROM leads WHERE id=?').bind(adminLead[1].toLowerCase()).first();
+    if(deletingLead)await ensureRenderQuota(env,deletingLead,config);
     return json(await deleteOwnerLead(env,adminLead[1],body));
   }
   const adminBlock = pathname.match(/^\/api\/admin\/blocks\/([^/]+)$/);
@@ -566,11 +576,11 @@ async function route(request, env, config, context) {
   if (session && UUID.test(session[1]) && method === 'GET') {
     const lead = await leadFor(request, env, session[1]); await settleStale(env, lead.id);
     const booking = await bookingFor(env, lead);
-    const current = await env.DB.prepare('SELECT remaining_renders FROM leads WHERE id=?').bind(lead.id).first();
+    const quota=await readRenderQuota(env,lead.id);
     const photos = booking.visualizerUnlocked ? (await env.DB.prepare("SELECT id FROM photos WHERE lead_id=? AND status='ready' ORDER BY created_at").bind(lead.id).all()).results : [];
     const renders = booking.visualizerUnlocked ? (await env.DB.prepare(`SELECT id,status,color_name,color_hex,surface,error_code FROM renders
       WHERE lead_id=? ORDER BY created_at`).bind(lead.id).all()).results : [];
-    return json({ id: lead.id, remainingRenders: current.remaining_renders, consultationPreference: lead.consultation_preference,
+    return json({ id: lead.id, ...quota,consultationPreference: lead.consultation_preference,
       lead: publicLead(lead), ...booking,
       photos: photos.map(photo => ({ id: photo.id, url: `/api/leads/${lead.id}/photos/${photo.id}` })),
       renders: renders.map(render => ({ id: render.id, status: render.status,

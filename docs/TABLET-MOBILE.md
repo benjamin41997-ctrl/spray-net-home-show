@@ -16,7 +16,7 @@ Both initially require only **name and phone**. Email/address are optional for l
 
 Appointments are offered **October 26–November 8, 2026**, inclusive, every day in the 8:00 am–7:00 pm Eastern work window. Visitors see a **one-hour consultation** in the picker, confirmation and downloaded calendar. Internal reservations retain **90 minutes plus a 30-minute travel gap**, latest start **5:30 pm**. Staff blocks/app appointments reduce choices. This calendar does not read Outlook, so staff enter outside commitments as blocks. [Calendar instructions](CALENDAR-SETUP.md)
 
-The rendering key is privately connected and an authorized live image test completed successfully. Offer: three successful renders per normalized phone/event, 50/day global attempt cap. Booking and provider readiness are separate requirements. Both layouts support native autofill and local address suggestions, with manual entry available.
+The rendering key is privately connected and an authorized GPT Image 2.5 Sunburst edit completed successfully. Offer: five successful renders per normalized phone/event. Attempt caps: ten per phone/event, 50/day sitewide, and 500/event sitewide. Durable usage survives deletion and recreation of a lead. Booking and provider readiness are separate requirements. Both layouts support native autofill and local address suggestions, with manual entry available.
 
 Address suggestions start immediately at the first eligible prefix. New pages receive results progressively, so the first county's real matches appear while other sources are still loading. A pool of up to 60 real candidates narrows locally, with at most eight choices displayed. Short delays coalesce further network searches. Public GIS results are cached per provider/query at the server edge for ten minutes (empty results for 30 seconds), under hashed query keys without contact fields or credentials. Visitor-local suggestions clear with the tablet reset; shared cache entries contain only public address fields. Older cached pages still receive compatible JSON responses.
 
@@ -26,9 +26,9 @@ The public QR uses the current HTTPS page origin/path with ?mode=mobile, without
 
 Scanning the public QR does not create a new unique URL or a lead. Separate phone browsers keep their form/pending work isolated; a successful submission creates its own unique lead ID and private token. Unsubmitted forms cannot overwrite another visitor's data. Returning on the same phone/browser resumes its saved project. Only a visitor-specific private QR resumes a particular saved lead; never use that QR as public signage.
 
-A private QR/link appears on the tablet after a confirmed consultation, preserving #studio=<lead-id>.<visitor-token>. It is **bearer access**, not an unlock flag. Show only its visitor, let them retain it, and clear before the next tablet user. Never publish, batch-export, log, or send its payload to analytics. The page scrubs the fragment and verifies against the trusted configured API.
+The tablet's same QR switches to the visitor's private project immediately after lead submission, preserving #studio=<lead-id>.<visitor-token>. They can continue scheduling on their phone, or open their already-unlocked visualizer after booking. It is **bearer access**, not an unlock flag. Show only its visitor, let them retain it, and clear before the next tablet user. Never publish, batch-export, log, or send its payload to analytics. The page scrubs the fragment and verifies against the trusted configured API.
 
-While scheduling on a tablet, the calendar fills a wider right column. The public QR and two project photos occupy the left column; the third photo returns on the lead-entry screen. Dates use seven columns on landscape tablets, and times use seven or eight columns according to screen width. Address/email and the selected-time/confirmation controls share rows. Buttons retain at least 44-pixel touch targets in the short-screen layout. Private sharing controls and the lower next-visitor button remain hidden until booking confirmation; the header next-visitor control remains available for staff. Narrow screens, browser zoom, and the on-screen keyboard can still scroll rather than clipping controls.
+While scheduling on a tablet, the calendar fills a wider right column. The visitor's private project QR and two project photos occupy the left column; the third photo returns on the lead-entry screen. Dates use seven columns on landscape tablets, and times use seven or eight columns according to screen width. Address/email and the selected-time/confirmation controls share rows. Buttons retain at least 44-pixel touch targets in the short-screen layout. The header Next visitor control is the only reset control; there is no second QR or lower Done/copy-link section. Narrow screens, browser zoom, and the on-screen keyboard can still scroll rather than clipping controls.
 
 QR generation uses the local MIT encoder: DOM SVG, black/white, medium error correction, four-module white margin. No URL/token goes to a QR service. Keep codes square, preserve margins, and do not cover modules with logos.
 
@@ -42,7 +42,7 @@ Visualizer surfaces allow multiple selections: Cabinets, Siding, Fascia, Gutters
 
 1. Open tablet mode; confirm event label, connection, and public QR.
 2. Capture name/phone with the visitor, or offer their phone through the public QR.
-3. Offer consultation scheduling now, or the public QR for visitors who prefer completing the flow on their own phone.
+3. After capture, offer consultation scheduling now, or the personalized QR for visitors who prefer completing the flow on their own phone.
 4. After a tablet booking, have them scan their private project QR before staff clears the tablet with the header next-visitor control. Verify the blank form and no previous private QR/photos. The tablet does not reset automatically.
 5. Keep a staffed fallback for network failure. A preview/timeout is not proof of a saved lead/booking.
 

@@ -1,6 +1,6 @@
 # Spray-Net home show lead capture
 
-A quick name-and-phone lead form for Spray-Net South Charlotte, with separate tablet-kiosk and mobile layouts sharing one private backend. Visitors can then book a consultation in the app's internal calendar. Only a confirmed server appointment unlocks photos and the three-render visualizer. **No corporate Microsoft/Entra connection is required.**
+A quick name-and-phone lead form for Spray-Net South Charlotte, with separate tablet-kiosk and mobile layouts sharing one private backend. Visitors can then book a consultation in the app's internal calendar. Only a confirmed server appointment unlocks photos and the five-render visualizer. **No corporate Microsoft/Entra connection is required.**
 
 The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-home-show) and [Pages address](https://benjamin41997-ctrl.github.io/spray-net-home-show/) use a dedicated Cloudflare lead API/D1/private R2. See [deployment status](docs/DEPLOYMENT.md) for release verification. Local public/config.js stays disconnected for previews; the production build receives API_BASE_URL from GitHub Actions. The rendering key is configured privately, and generation is enabled after a successful authorized live image test.
 
@@ -9,7 +9,7 @@ The public [source repository](https://github.com/benjamin41997-ctrl/spray-net-h
 1. Submit just a name and phone. Email/project address are optional, and no photo or appointment is needed to save the lead.
 2. After saving, choose a consultation time and provide the required email and project address. The server confirms it in the internal calendar before unlocking the visualizer.
 3. Consultations are offered **October 26–November 8, 2026**, **every day 8:00 am–7:00 pm Eastern**. The customer sees a **one-hour** visit; internally the scheduler reserves **90 minutes** plus a **30-minute travel buffer**. The latest visit starts at **5:30 pm**. Staff blocks and existing app bookings remove unavailable times.
-4. The booth's public QR opens an empty mobile lead form. Phones remember their own saved project. The tablet confirmation screen has no second QR, copy-link section or lower Done button; staff use the single **Next visitor** button at the top to reset it manually.
+4. The tablet's single QR opens the mobile form before submission, then switches to the active visitor's private project. A booked visitor can scan it to access the visualizer on their phone. Phones remember their own saved project. Staff use the top **Next visitor** button to clear the private QR and restore public capture; there is no second QR, copy-link section or lower Done button.
 
 Use [mobile mode](https://benjamin41997-ctrl.github.io/spray-net-home-show/?mode=mobile), [tablet mode](https://benjamin41997-ctrl.github.io/spray-net-home-show/?mode=tablet), and [owner portal](https://benjamin41997-ctrl.github.io/spray-net-home-show/admin.html) for owner scheduling/export. The owner page reuses the review portal's email/password account and saved session, with automatic refresh and no inactivity timeout. It supports consultations, blocked time, cancellation, private CSV export, Outlook calendar-file downloads, and prepared email/text confirmations. [Owner sign-in and manual sending](docs/OWNER-PORTAL.md)
 
@@ -19,7 +19,7 @@ Both contact forms support native browser autofill and local address suggestions
 
 The visualizer supports custom color/finish instructions and opens new results in a large Save image/Back to editing preview. Saved results can be viewed larger without spending another credit. [Visualizer behavior and current cost estimate](docs/VISUALIZER.md).
 
-Existing private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. The tablet no longer displays or copies private project links. No automatic project-link email/SMS or magic-link service is included.
+Private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. The tablet's existing QR displays this private handoff while a visitor is active. No automatic project-link email/SMS or magic-link service is included.
 
 ## Local development
 
@@ -38,9 +38,9 @@ The preview at http://localhost:4173 serves public/ and does not emulate live sa
 
 - One-page tablet/mobile capture with optional email/address, autofill hints, and retry-safe lead identity.
 - Internal availability/booking, staff blocks/cancellation, and confirmed-booking checks on all studio/media operations.
-- Local SVG public QR generation, private HTTPS access, tab recovery, and shared-device reset.
+- Local SVG public/private project QR generation, private HTTPS access, tab recovery, and shared-device reset.
 - Private JPEG/PNG/WebP uploads up to 10 MB, color/surface choices, completed-image download, and failed-image retrieval.
-- Three successful renders per normalized phone/event, atomic credits/daily attempt cap, and server-only image credentials. Failed renders restore visitor credit; attempts remain counted because charges may occur.
+- Five successful renders per normalized phone/event, durable atomic credit/attempt limits, and server-only image credentials. Failed renders restore visitor credit; attempts remain counted because charges may occur.
 - Protected CSV export, exact-origin CORS, private R2, and no customer data or runtime secrets in public assets.
 - GitHub checks/build/Pages workflow gated by PUBLISH_PAGES=true; Worker migrations/deployments remain separate.
 
@@ -48,6 +48,6 @@ Follow [SETUP.md](docs/SETUP.md), [tablet/mobile operation](docs/TABLET-MOBILE.m
 
 ## Before the show
 
-Complete migration/deployment, staff access setup, outside-commitment blocks, and physical phone/tablet checks. Keep any separately supplied staff-access file private/outside Git and never publish it. Confirm a real generation before relying on visualizer quality; the allowance is three per lead and the global cap is 50 attempts/day.
+Complete migration/deployment, staff access setup, outside-commitment blocks, and physical phone/tablet checks. Keep any separately supplied staff-access file private/outside Git and never publish it. The upgraded image model passed a live generation test. The allowance is five successful renders per normalized phone/event, with ten attempts per phone/event, 50 attempts/day sitewide, and 500 attempts/event sitewide.
 
 The shortened form differs from the corporate procedure. Agree how missing CRM fields are completed during follow-up, obtain/test the exact Spray-Network import mapping, and follow up within the procedure's 24-hour window. Network loss is not an offline save; retain a staffed/Microsoft Form fallback.

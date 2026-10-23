@@ -10,6 +10,8 @@ import { createVisitorStorage } from './visitor-storage.js';
 import { resetTabletSession } from './kiosk.js';
 import { customRenderPrompt } from './render-settings.js';
 import { createRenderPreview } from './render-preview.js';
+import { tabletHandoff } from './tablet-handoff.js';
+import { renderBalance } from './render-balance.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
@@ -18,7 +20,7 @@ let tabStorage,persistentStorage;try{tabStorage=sessionStorage;persistentStorage
 const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
 if (location.hash.startsWith('#studio=')) history.replaceState(null, '', location.pathname + location.search);
-const state = { lead: null, session: null, ready: false, renderAvailable: false, busy: false, remaining: 3,
+const state = { lead: null, session: null, ready: false, renderAvailable: false, busy: false, remaining: null,
   photos: [], selectedPhoto: 0, color: 0, urls: new Set(), shownResults: new Map(), slots: [], day: '', selectedSlot: '',
   pendingLead: null, pendingBooking: null, pendingRender: null, completedRender: null, savedMedia: null, loadedMediaFor: null, mediaLoadAccess: null };
 let apiBase = '';
@@ -50,18 +52,27 @@ async function request(path, { method = 'GET', body, token, headers = {}, timeou
   if (!response.ok) { const e = new Error(data.error?.message || 'We could not complete that request. Please try again.'); e.code = data.error?.code; e.status = response.status; throw e; }
   return data;
 }
-function publicMobileUrl() { const u = new URL(location.pathname, location.origin); u.searchParams.set('mode', 'mobile'); return u.href; }
 $('.brand').href = `${location.pathname}?mode=${mode}`;
-try { if (mode === 'tablet') renderQr($('#public-mobile-qr'), publicMobileUrl(), { label: 'Scan to open our mobile lead form' }); } catch {}
+function updateTabletHandoff() {
+  if(mode!=='tablet')return;
+  const qr=$('#public-mobile-qr');qr.replaceChildren();
+  try{const handoff=tabletHandoff(location.href,state.lead);
+    $('#tablet-qr-title').textContent=handoff.title;$('#tablet-qr-description').textContent=handoff.description;
+    renderQr(qr,handoff.url,{label:handoff.label});
+  }catch{$('#tablet-qr-title').textContent='Project QR unavailable';$('#tablet-qr-description').textContent='Ask our team to reopen this project on the published website.';}
+}
+updateTabletHandoff();
 function updateRenderAvailability() {
-  $('#remaining-renders').textContent = String(state.remaining);
-  $('#create-render').disabled = state.busy || !unlocked() || !state.renderAvailable || (state.remaining <= 0 && !state.pendingRender);
+  const balance=Number.isInteger(state.remaining)?String(state.remaining):'Checking…';
+  $('#remaining-renders').textContent=balance;$$('[data-remaining-renders]').forEach(element=>{element.textContent=balance;});
+  $('#create-render').disabled = state.busy || !unlocked() || !state.renderAvailable || !Number.isInteger(state.remaining) || (state.remaining <= 0 && !state.pendingRender);
   $('#photos').disabled = state.busy || !unlocked();
   $('#custom-prompt').readOnly=state.busy||Boolean(state.pendingRender);
   $('#studio-status').textContent = state.renderAvailable ? 'Your project is saved. Explore a color idea whenever you are ready.' : 'Your consultation is confirmed. Image generation is unavailable right now.';
 }
 function showSaved({ focus = false } = {}) {
   renderPreview.clear();
+  updateTabletHandoff();
   void visits.record(state.lead);
   $('#lead-panel').hidden = true; $('#page-intro').hidden = true; $('#saved-panel').hidden = false; $('#studio').hidden = true;
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
@@ -94,7 +105,7 @@ async function refreshSession() {
   const access = state.lead; if (!access) return;
   const session = await request(`/api/leads/${access.id}/session`, { token: access.token });
   if (!sameStudioAccess(access, state.lead)) return;
-  state.session = session; state.remaining = session.remainingRenders;
+  const remaining=renderBalance(session);state.session = session; state.remaining = remaining;
   state.savedMedia = { photos: session.photos || [], renders: session.renders || [] };
 }
 async function restoreSession() {
@@ -137,8 +148,8 @@ async function connect() {
     const health = apiBase ? await request('/api/health') : null;
     state.ready = health?.ready === true; state.renderAvailable = health?.renderAvailable === true;
     const availability = $('#visualizer-availability'); if (availability) availability.hidden = state.renderAvailable;
-    state.remaining = health?.freeRenders ?? config.freeRenders ?? 3;
-    $$('[data-free-renders]').forEach(e => { e.textContent = String(state.remaining); });
+    const allowance=health?.freeRenders ?? config.freeRenders ?? 5;
+    $$('[data-free-renders]').forEach(e => { e.textContent = String(allowance); });
     $('#connection-status').textContent = state.ready ? 'Connected securely · South Charlotte' : 'Live submissions are unavailable. Please speak with our booth team.';
     $('#connection-status').classList.toggle('live', state.ready);
     if (state.ready) try { await restoreSession(); } catch {
@@ -163,7 +174,7 @@ form.addEventListener('submit', async event => {
     state.pendingLead = pending; saveSession({ pendingLead: pending });
     const lead = await request('/api/leads', { method: 'POST', body: pending.payload, headers: { 'Idempotency-Key': pending.key, 'X-Lead-Token': pending.token } });
     if (!sameStudioAccess(lead, lead)) throw new Error('We could not confirm your saved details. Reload to check this request.');
-    state.lead = lead; state.pendingLead = null; state.remaining = lead.remainingRenders; saveSession({ lead, pendingLead: null });
+    state.lead = lead; state.pendingLead = null; state.remaining = renderBalance(lead); saveSession({ lead, pendingLead: null });
     state.session = { lead: { ...payload }, booking: { status: 'none' }, visualizerUnlocked: false };
     showSaved({ focus: true });
   } catch (e) { if ([400,422].includes(e.status) || e.code === 'ALREADY_REGISTERED') { state.pendingLead = null; saveSession({ pendingLead: null }); } message(e.name === 'TimeoutError' ? 'The connection timed out. Submit again to check this same request.' : e.message); }
@@ -249,7 +260,8 @@ function clearTabletForm() {
   renderPreview.clear();$('#custom-prompt').value='';
   visits.reset();
   for (const url of [...state.urls]) release(url);
-  Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
+  Object.assign(state, { lead:null, session:null, remaining:null, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
+  updateTabletHandoff();updateRenderAvailability();
   state.shownResults.clear(); form.reset(); $('#booking-form').reset();
   leadAddress.clear();bookingAddress.clear();
   for (const id of ['#render-results','#studio-photos','#slot-days','#slot-times']) $(id).replaceChildren();
@@ -379,7 +391,7 @@ $('#create-render').addEventListener('click', async () => {
     const pending = state.pendingRender; status.textContent = 'Creating your visualization. This can take a couple of minutes. Keep this page open.';
     let result = await request(`/api/leads/${state.lead.id}/renders`,{method:'POST',body:pending.body,token:state.lead.token,headers:{'Idempotency-Key':pending.key},timeout:240000});
     for (let n=0;n<30 && result.status === 'pending';n++) {await new Promise(resolve => setTimeout(resolve,2500));result = await request(`/api/leads/${state.lead.id}/renders/${result.id}`,{token:state.lead.token});}
-    if (Number.isInteger(result.remainingRenders)) state.remaining = result.remainingRenders;
+    state.remaining=renderBalance(result);
     if (result.status === 'pending') throw new Error('Your visualization is still processing. Use the button again to check this same request.');
     state.pendingRender = null;saveSession({pendingRender:null});
     if (result.status === 'failed') throw new Error(result.error?.message || 'The visualization did not finish. Your credit has been restored.');

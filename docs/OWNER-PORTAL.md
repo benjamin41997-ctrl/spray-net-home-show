@@ -12,6 +12,8 @@ Each lead card has a **Delete lead** button with a confirmation naming the lead 
 
 Deletion is refused while a visualization or unresolved booking is running. A linked external Outlook appointment must be cancelled separately before deletion. Global daily rendering-attempt counts are retained, so deleting a lead does not bypass the API spending cap. Private photo/render cleanup is retried from a queue if storage is temporarily unavailable; the dashboard reports pending cleanup. This queue contains object keys and a lead ID, without customer contact details or access tokens.
 
+Deleting a lead also preserves minimal hashed phone/event render usage. Re-registering the same phone does **not** restore used credits or failed-attempt budget. The current allowance is five total successful images, with 10 attempts per phone/event, 50 site-wide attempts per UTC day and 500 per event. The same allowance follows the visitor's personalized tablet QR to their phone. The single QR returns to public capture when staff choose Next visitor. [Quota and handoff details](VISUALIZER.md).
+
 Apply `backend/migrations/0005_lead_deletion_cleanup.sql` before deploying the deletion API. The cleanup manifest and lead deletion commit in one transaction; incomplete media cleanup cannot keep a phone number blocked or restore old project access.
 
 ## Weekly calendar
