@@ -1,12 +1,14 @@
-# Home-show consultation confirmations — admin setup request
+# Home-show consultation confirmations
 
 ## Current state
 
-The website confirms appointments in its own private calendar. Email is required for booking, but email and SMS delivery are **not connected**. The existing owner email action opens a draft for manual sending. No mailbox, text provider, workflow URL, or CRM integration credential is configured in the API.
+The website confirms appointments in its own private calendar. Email is required for booking. The owner portal provides **Draft email**, **Draft text**, and copyable messages on confirmed lead and calendar cards. The owner can send email from their Spray-Net mailbox and texts from their personal cell without corporate workflow access. See the [manual sending steps](OWNER-PORTAL.md#send-confirmation-from-your-phone).
+
+Automatic email and SMS delivery are **not connected**. No mailbox, text provider, workflow URL, or CRM integration credential is configured in the API. Opening or copying a draft never sends it or proves delivery. The setup below is an optional future automation path, not a prerequisite for manual sending.
 
 The supplied HighLevel/Spray-Network screenshot shows **View-only mode — you can explore the list but you cannot make changes**. It lists an existing Appointment Reminder workflow. Its trigger and delivery actions have not been inspected or verified. A website booking does not automatically create a HighLevel appointment or enroll anyone in that workflow.
 
-## Request to the Spray-Network/HighLevel admin
+## Optional future request to the Spray-Network/HighLevel admin
 
 Please enable the appropriate workflow editing permission for Ben Hessler's South Charlotte location, or create a draft workflow named **Home Show — Confirmed Consultation** with:
 

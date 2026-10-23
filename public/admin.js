@@ -1,7 +1,7 @@
 import { safeApiBase } from './lib.js';
 import { createCalendarFile } from './calendar.js';
 import { createOwnerAuth } from './owner-auth.js';
-import { confirmationEmailDraft } from './confirmation-email.js';
+import { createConfirmationTools } from './confirmation-tools.js';
 
 const EASTERN_ZONE = 'America/New_York';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -75,6 +75,7 @@ function initializeAdmin() {
     state.busy = value;
     $('#sign-in').disabled = value || !apiBase || !auth; $('#retry-sign-in').disabled = value;
     for (const button of document.querySelectorAll('[data-action-button]')) button.disabled = value;
+    for (const link of document.querySelectorAll('.confirmation-actions a')) link.setAttribute('aria-disabled',String(value));
     $('#lead-stage').disabled=value;$('#previous-leads').disabled=value || state.leadPage<=1;
     $('#next-leads').disabled=value || state.leadPage>=state.leadPages;
     if (label) $('#calendar-status').textContent = label;
@@ -153,6 +154,11 @@ function initializeAdmin() {
     return row;
   }
   function validInstant(value) { return typeof value === 'string' && Number.isFinite(Date.parse(value)); }
+  function confirmationTools(appointment) {
+    const generation=state.generation;
+    return createConfirmationTools(appointment,{document,device:navigator,clipboard:navigator.clipboard,
+      isActive:()=>state.authenticated && !state.busy && generation===state.generation});
+  }
   function showTab(view,focus=false) {
     for (const name of ['leads','calendar']) {
       const active=name===view,tab=$(`#${name}-tab`);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
@@ -184,6 +190,7 @@ function initializeAdmin() {
       }
       card.append(progress,element('p','lead-last-visit',`Last project open: ${lead.lastAccessedAt?formatEasternInstant(lead.lastAccessedAt):'Not recorded'}`),
         element('p','lead-last-visit',`${lead.remainingRenders} free renders remaining${lead.pendingRenderCount?' · Render in progress':''}`));
+      const confirmations=confirmationTools({...lead,...lead.booking});if(confirmations)card.append(confirmations);
       const actions=element('div','lead-actions'),remove=element('button','danger-button','Delete lead');
       remove.type='button';remove.setAttribute('data-action-button','');remove.setAttribute('aria-label',`Delete lead for ${lead.name || 'this visitor'}`);
       remove.addEventListener('click',()=>{
@@ -216,6 +223,7 @@ function initializeAdmin() {
       if (appointment.email) card.append(detail('Email', appointment.email));
       const actions = element('div', 'appointment-actions'), cancel = element('button', 'danger-button', 'Cancel consultation');
       if (appointment.status === 'confirmed') {
+        card.append(confirmationTools(appointment));
         const download = element('button', 'button secondary small', 'Download for Outlook');
         download.type = 'button'; download.setAttribute('data-action-button', '');
         download.setAttribute('aria-label', 'Download calendar file with 90-minute consultation and 30-minute travel buffer');
@@ -228,10 +236,6 @@ function initializeAdmin() {
           } catch { message('This appointment could not be downloaded. Refresh the calendar and try again.'); }
         });
         actions.append(download);
-        if(appointment.email) {
-          const draft=element('a','button secondary small','Prepare confirmation email');
-          try{draft.href=confirmationEmailDraft(appointment);draft.addEventListener('click',()=>message('Email draft opened. Choose ben.hessler@spray-net.com as the sender, review the details, and send. This button does not send automatically.',true));actions.append(draft);}catch{}
-        }
       }
       cancel.type = 'button'; cancel.setAttribute('data-action-button', '');
       cancel.addEventListener('click', () => {

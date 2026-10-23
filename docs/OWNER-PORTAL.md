@@ -14,9 +14,19 @@ Deletion is refused while a visualization or unresolved booking is running. A li
 
 Apply `backend/migrations/0005_lead_deletion_cleanup.sql` before deploying the deletion API. The cleanup manifest and lead deletion commit in one transaction; incomplete media cleanup cannot keep a phone number blocked or restore old project access.
 
-## Lead progress
+## Send confirmation from your phone
 
-The Calendar tab offers **Prepare confirmation email** for confirmed appointments that have an email address. It opens a draft in the owner's email app, using the visitor's one-hour appointment time. Choose the Spray-Net sender and review/send manually. The app does not send automatically; Microsoft Mail.Send authorization is not configured. Staff Outlook exports retain the longer internal reservation and travel gap.
+Open the owner portal on your phone and sign in with your existing review-portal account. Confirmed appointments have **Draft email** and **Draft text** on both the lead card and Calendar card. Each draft includes the customer's first name, saved project address, Eastern date and one-hour customer appointment time.
+
+- **Draft email:** opens your configured email app with the recipient, subject and message. Choose **ben.hessler@spray-net.com** as the sender, review and send. A website mail link cannot choose the From account or authorize that mailbox. If needed, open Outlook yourself and copy the recipient, subject and message below the buttons.
+- **Draft text:** opens your phone's messaging app with the customer's number and a prepared confirmation. Send from your personal/default line, or choose the line you want on a dual-SIM phone. The website does not need your personal phone number, a texting API key, or HighLevel editing access.
+- **View or copy messages:** shows read-only drafts with copy buttons for the email recipient, subject, message, phone number and text message. If copying is denied, the portal selects the text for manual copying. This also works when a desktop has no SMS handler or a phone handler ignores the message body.
+
+These are manual compose actions: always review and tap Send in your email or messaging app. Opening/copying a draft does not mark it sent, and the portal cannot confirm delivery or see replies. Replies stay in the email account/phone line used to send. No automatic messaging provider or Microsoft Mail.Send authorization is connected. The [future automation setup](CONFIRMATION-INTEGRATION.md) is optional; it is not needed for this manual workflow. Staff Outlook exports retain the longer internal reservation and travel gap.
+
+Draft data is created only from the private, authenticated owner response. No contact data is sent to a draft-generation service, and visitor access tokens are excluded from the messages. Opening a draft passes the recipient and content to the app chosen by the owner; copying uses the device clipboard.
+
+## Lead progress
 
 - **Lead received:** contact form was saved.
 - **Scheduling started:** the visitor chose to schedule but has no confirmed booking.
