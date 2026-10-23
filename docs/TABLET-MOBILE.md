@@ -22,6 +22,8 @@ The rendering key is privately connected and an authorized live image test compl
 
 The public QR uses the current HTTPS page origin/path with ?mode=mobile, without a lead/token. Use it for signage. The standalone [public mobile QR SVG](mobile-qr.svg) encodes the production URL and its rendered SVG decoded independently. Recreate if the final URL changes; test physical prints/displays.
 
+Scanning the public QR does not create a new unique URL or a lead. Separate phone browsers keep their form/pending work isolated; a successful submission creates its own unique lead ID and private token. Unsubmitted forms cannot overwrite another visitor's data. Returning on the same phone/browser resumes its saved project. Only a visitor-specific private QR resumes a particular saved lead; never use that QR as public signage.
+
 A private QR/link appears on the tablet after a confirmed consultation, preserving #studio=<lead-id>.<visitor-token>. It is **bearer access**, not an unlock flag. Show only its visitor, let them retain it, and clear before the next tablet user. Never publish, batch-export, log, or send its payload to analytics. The page scrubs the fragment and verifies against the trusted configured API.
 
 While scheduling on a tablet, the calendar fills a wider right column. The public QR and two project photos occupy the left column; the third photo returns on the lead-entry screen. Dates use seven columns on landscape tablets, and times use seven or eight columns according to screen width. Address/email and the selected-time/confirmation controls share rows. Buttons retain at least 44-pixel touch targets in the short-screen layout. Private sharing controls and the lower next-visitor button remain hidden until booking confirmation; the header next-visitor control remains available for staff. Narrow screens, browser zoom, and the on-screen keyboard can still scroll rather than clipping controls.
@@ -43,6 +45,8 @@ Visualizer surfaces allow multiple selections: Cabinets, Siding, Fascia, Gutters
 5. Keep a staffed fallback for network failure. A preview/timeout is not proof of a saved lead/booking.
 
 Owner access uses the same email/password and saved session as the review portal. It persists across reloads, page closure and inactivity; explicit sign-out clears the shared session on this browser. Keep the separate operator key and any private access files outside Git/public output and visitor forms. Downloaded CSV/calendar files still need private handling.
+
+Next-visitor/Done actions are bound only in tablet mode and are disabled/hidden on mobile. Manual and idle resets clear the tablet session, remove private URL fragments, explicitly retain ?mode=tablet, and restore the tablet entry layout. Tablet and mobile tab storage use separate keys, even when switching modes in the same browser tab. Resetting the tablet does not delete a saved lead or erase a phone's saved project.
 
 ## Verification
 

@@ -6,6 +6,7 @@ import { attachAddressAutocomplete } from './address-autocomplete.js';
 import { createVisitRecorder } from './visits.js';
 import { VISUALIZER_SURFACES, selectedSurfaces, visitorAppointment } from './project-options.js';
 import { createVisitorStorage } from './visitor-storage.js';
+import { resetTabletSession } from './kiosk.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
@@ -61,7 +62,7 @@ function showSaved({ focus = false } = {}) {
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
   $('#saved-title').textContent=name?`Thanks, ${name}, you’re on our list.`:'Thanks, you’re on our list.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
-  $('.private-access').hidden = !confirmed; $('#next-visitor').hidden = !confirmed;
+  $('.private-access').hidden = !confirmed; $('#next-visitor').hidden = mode!=='tablet' || !confirmed;
   const calendar = $('#download-appointment'); calendar.hidden = true;
   if (calendar.dataset.objectUrl) { release(calendar.dataset.objectUrl); delete calendar.dataset.objectUrl; calendar.removeAttribute('href'); }
   if (confirmed) {
@@ -244,8 +245,11 @@ $('#copy-project-link').addEventListener('click', async () => {
   catch { $('#private-link').hidden = false; $('#private-link').focus(); $('#private-link').select(); $('#access-status').textContent = 'Copy and save this private link.'; }
 });
 function resetVisitor() {
+  if (mode !== 'tablet') return;
   if (state.busy) { message('Please wait for the current request to finish before clearing this tablet.'); return; }
-  visitorStorage.clear();
+  resetTabletSession({mode,url:location.href,history,body:document.body,storage:visitorStorage,reset:clearTabletForm});
+}
+function clearTabletForm() {
   visits.reset();
   for (const url of [...state.urls]) release(url);
   Object.assign(state, { lead:null, session:null, remaining:config.freeRenders ?? 3, photos:[], selectedPhoto:0, pendingLead:null, pendingBooking:null, pendingRender:null, completedRender:null, savedMedia:null, loadedMediaFor:null, mediaLoadAccess:null, slots:[], day:'', selectedSlot:'' });
@@ -256,10 +260,15 @@ function resetVisitor() {
   surfaceOptions();
   $('#private-link').value = ''; $('#private-link').hidden = true; $('#retry-image').hidden = true;
   $('#download-appointment').removeAttribute('href'); delete $('#download-appointment').dataset.objectUrl; $('#download-appointment').hidden = true;
-  $('#lead-panel').hidden = false; $('#page-intro').hidden = false; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true; $('#idle-notice').hidden = true;
+  $('#lead-panel').hidden = false; $('#page-intro').hidden = true; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true; $('#idle-notice').hidden = true;
+  $('.private-access').hidden = true; $('#next-visitor').hidden = true;
   $('#submit-lead').disabled = !state.ready; message(); lastActivity = Date.now(); $('#lead-name').focus({preventScroll:true}); window.scrollTo({top:0,behavior:'instant'});
 }
-$('#header-reset').addEventListener('click', resetVisitor); $('#next-visitor').addEventListener('click', resetVisitor);
+$('#header-reset').hidden = mode !== 'tablet';
+for (const id of ['#header-reset','#next-visitor']) {
+  $(id).disabled = mode !== 'tablet';
+  if (mode === 'tablet') $(id).addEventListener('click', resetVisitor);
+}
 for (const type of ['pointerdown','keydown','input']) document.addEventListener(type, () => { lastActivity = Date.now(); $('#idle-notice').hidden = true; }, {passive:true});
 if (mode === 'tablet') setInterval(() => {
   if (state.busy) { lastActivity = Date.now(); return; }
