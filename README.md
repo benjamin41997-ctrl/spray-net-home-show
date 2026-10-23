@@ -19,6 +19,8 @@ Both contact forms support native browser autofill and local address suggestions
 
 The visualizer uses photo, color and surface choices, with no custom-prompt field. New results open in a large Save image/Back to editing preview. Saved results can be viewed larger without spending another credit. [Visualizer behavior and current cost estimate](docs/VISUALIZER.md).
 
+The tablet studio keeps the QR and portfolio/project images on the left and compact color/surface/Create controls on the right. Saved preview history scrolls within the left column. Browser checks with synthetic media verified one-screen layouts at 1024×768 and 960×600; mobile retains its original media placement.
+
 The site installs as a tablet app, with branded home-screen icons and a public `?mode=tablet` launch. Use **Install tablet app** in the tablet footer, or the browser's installation menu. Supported devices use fullscreen, with standalone web-app view as a fallback. No customer data or app shell is cached by its service worker; internet is still required. [Installation steps](docs/INSTALL-APP.md).
 
 Private project links carry a lead bearer token in the #studio= fragment. Anyone with one has that project's access; it is not a public marketing link or unlock flag. The page scrubs/verifies it and the server checks booking status. The tablet's existing QR displays this private handoff while a visitor is active. No automatic project-link email/SMS or magic-link service is included.

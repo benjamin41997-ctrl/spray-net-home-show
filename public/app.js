@@ -12,11 +12,13 @@ import { setupTabletApp } from './pwa.js';
 import { createRenderPreview } from './render-preview.js';
 import { tabletHandoff } from './tablet-handoff.js';
 import { renderBalance } from './render-balance.js';
+import { createStudioLayout } from './studio-layout.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
 document.body.dataset.mode = mode;
 setupTabletApp({mode,button:$('#install-app'),dialog:$('#install-dialog'),install:$('#install-native'),fullscreen:$('#install-fullscreen'),close:$('#close-install'),status:$('#install-status')});
+const studioLayout=createStudioLayout({mode,studio:$('#studio'),photos:$('#studio-photos'),results:$('#render-results'),photoHome:$('#studio-photo-home'),resultHome:$('#studio-result-home'),sidebar:$('#tablet-studio-media'),photoDock:$('#tablet-photo-dock'),resultDock:$('#tablet-render-dock')});
 let tabStorage,persistentStorage;try{tabStorage=sessionStorage;persistentStorage=localStorage;}catch{}
 const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
@@ -75,6 +77,7 @@ function showSaved({ focus = false } = {}) {
   updateTabletHandoff();
   void visits.record(state.lead);
   $('#lead-panel').hidden = true; $('#page-intro').hidden = true; $('#saved-panel').hidden = false; $('#studio').hidden = true;
+  studioLayout.sync();
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
   $('#saved-title').textContent=name?`Thanks, ${name}, you’re on our list.`:'Thanks, you’re on our list.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
@@ -269,6 +272,7 @@ function clearTabletForm() {
   $('#retry-image').hidden = true;
   $('#download-appointment').removeAttribute('href'); delete $('#download-appointment').dataset.objectUrl; $('#download-appointment').hidden = true;
   $('#lead-panel').hidden = false; $('#page-intro').hidden = true; $('#saved-panel').hidden = true; $('#studio').hidden = true; $('#booking-panel').hidden = true;
+  studioLayout.sync();
   $('#submit-lead').disabled = !state.ready; message(); $('#lead-name').focus({preventScroll:true}); window.scrollTo({top:0,behavior:'instant'});
 }
 $('#header-reset').hidden = mode !== 'tablet';
@@ -345,7 +349,7 @@ async function loadSavedStudioMedia() {
 $('#open-studio').addEventListener('click', async () => {
   if (state.busy || !state.lead) return; state.busy = true; message();
   try { await refreshSession(); if (!unlocked()) {showSaved();throw new Error('Your consultation must be confirmed before visualizer access.');}
-    $('#saved-panel').hidden = true; $('#studio').hidden = false; $('#studio-title').focus({preventScroll:true}); await loadSavedStudioMedia();
+    $('#saved-panel').hidden = true; $('#studio').hidden = false;studioLayout.sync(); $('#studio-title').focus({preventScroll:true}); await loadSavedStudioMedia();
   } catch (e) { state.session = null; showSaved(); message(e.message); } finally {state.busy = false;updateRenderAvailability();}
 });
 $('#close-studio').addEventListener('click', () => { if (!state.busy) showSaved(); });
