@@ -29,8 +29,10 @@ export async function requireOwner(request, env, fetcher = fetch) {
   } catch { fail(503,'AUTH_UNAVAILABLE','Owner sign-in is temporarily unavailable. Try again.'); }
   let response;
   try {
+    // Workers supports manual/follow redirects. Reject every 3xx response below
+    // rather than forwarding the authorization header to another destination.
     response = await fetcher(origin+'/auth/v1/user', {headers:{apikey:env.SUPABASE_PUBLISHABLE_KEY,Authorization:header},
-      signal:AbortSignal.timeout(10000),redirect:'error'});
+      signal:AbortSignal.timeout(10000),redirect:'manual'});
   } catch { fail(503,'AUTH_UNAVAILABLE','The sign-in connection is unavailable. Your saved sign-in has not been cleared.'); }
   if ([400,401,403,404,422].includes(response.status)) fail(401,'UNAUTHORIZED','Sign in to the owner portal to continue.');
   if (!response.ok) fail(503,'AUTH_UNAVAILABLE','The sign-in connection is unavailable. Try again.');

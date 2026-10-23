@@ -15,7 +15,7 @@ test('owner identity is verified with the existing provider before accepting its
   await requireOwner(request(jwt),env,async(url,options)=>{
     calls++;assert.equal(url,'https://owner-qa.supabase.co/auth/v1/user');
     assert.equal(options.headers.Authorization,'Bearer '+jwt);assert.equal(options.headers.apikey,env.SUPABASE_PUBLISHABLE_KEY);
-    assert.equal(options.redirect,'error');assert.ok(!url.includes(jwt));
+    assert.equal(options.redirect,'manual');assert.ok(!url.includes(jwt));
     return response({...user,email:'Ben.Hessler@Spray-Net.com'});
   });
   assert.equal(calls,1);
@@ -28,7 +28,7 @@ test('unverified, anonymous, missing and other-account identities cannot access 
 });
 test('expired or rejected provider tokens fail closed, while provider outages remain retryable without a forced sign-out',async()=>{
   for(const status of [400,401,403,422]) await assert.rejects(requireOwner(request(jwt),env,async()=>response({private:'not returned'},status)),{status:401});
-  for(const status of [429,500,503]) await assert.rejects(requireOwner(request(jwt),env,async()=>response({private:'not returned'},status)),{status:503,code:'AUTH_UNAVAILABLE'});
+  for(const status of [302,307,429,500,503]) await assert.rejects(requireOwner(request(jwt),env,async()=>response({private:'not returned'},status)),{status:503,code:'AUTH_UNAVAILABLE'});
   await assert.rejects(requireOwner(request(jwt),env,async()=>{throw Error('upstream private details');}),{status:503,code:'AUTH_UNAVAILABLE'});
   await assert.rejects(requireOwner(request(jwt),env,async()=>new Response('invalid JSON')),{status:503});
 });

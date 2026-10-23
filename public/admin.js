@@ -88,9 +88,6 @@ function initializeAdmin() {
     busy(false); message(text); if (focus) $('#owner-email').focus({ preventScroll: true });
   }
   function safeError(error) {
-    // Programming errors may be diagnosed without logging provider responses,
-    // credentials, request bodies, or private records.
-    if (['TypeError','ReferenceError','SyntaxError'].includes(error?.name)) console.warn('Owner portal: '+error.name+': '+error.message);
     if (error?.status === 401) return 'Your saved sign-in was not accepted. Sign in again with your review-portal email and password.';
     if (error?.status === 403) return 'This account does not have owner access. Sign in with your Spray-Net owner account.';
     if (error?.status === 404) return 'Staff scheduling is unavailable at this connection. No calendar data is shown.';
