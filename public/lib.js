@@ -1,7 +1,8 @@
 export const COLORS = [
   {name:'Soft white',hex:'#F2EFE6'}, {name:'Warm greige',hex:'#B8B0A2'},
   {name:'Sage green',hex:'#8B9485'}, {name:'Deep navy',hex:'#293C50'},
-  {name:'Charcoal',hex:'#454747'}, {name:'Classic black',hex:'#242626'}
+  {name:'Charcoal',hex:'#454747'}, {name:'Classic black',hex:'#242626'},
+  {name:'Pure white',hex:'#FFFFFF'}
 ];
 export const MAX_PHOTOS=3;
 export function validatePhoto(file) {

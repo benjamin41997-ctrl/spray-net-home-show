@@ -528,3 +528,81 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
   body[data-mode=tablet] #studio>#create-render{grid-column:3;grid-row:5}
   body[data-mode=tablet] #studio-qr-dock .public-qr{width:84px}
 }
+
+/* Visible progress for every long-running action. Reduced-motion preferences
+   keep the ring and busy text visible without animation. */
+@keyframes progress-spin{to{transform:rotate(360deg)}}
+button.is-loading{display:flex;align-items:center;justify-content:center;gap:12px;opacity:1!important;cursor:progress}
+button.is-loading:before,.studio-status.is-rendering:before{content:"";display:inline-block;flex:0 0 auto;width:22px;height:22px;border:3px solid currentColor;border-right-color:transparent;border-radius:50%;animation:progress-spin .8s linear infinite}
+.studio-status.is-rendering{display:flex;align-items:center;gap:12px;padding:12px 14px!important;border:1px solid #d6e2eb;border-radius:8px;background:var(--pale);color:var(--navy);font-weight:700}
+.studio-status.is-rendering:before{width:26px;height:26px}
+@media(prefers-reduced-motion:reduce){button.is-loading:before,.studio-status.is-rendering:before{animation:none}}
+/* Tablet legibility: retain roomy touch targets and let the studio use more
+   of the available vertical space. Phone typography remains unchanged. */
+@media(min-width:760px){
+  body[data-mode=tablet] .booking-invitation{display:flex;flex-direction:column;gap:18px;margin-bottom:0}
+  body[data-mode=tablet] #show-booking{order:-1;min-height:66px;font-size:21px}
+  body[data-mode=tablet] .booking-invitation>.rewards-invitation{font-size:22px!important;line-height:1.5!important;margin:0!important;max-width:none!important}
+  body[data-mode=tablet] .visualizer-perk{margin:0;padding:21px 18px}
+  body[data-mode=tablet] .visualizer-perk h3{font-size:25px;line-height:1.2}
+  body[data-mode=tablet] .visualizer-perk p{font-size:17px;line-height:1.55}
+  body[data-mode=tablet] .public-qr-card strong{font-size:20px;line-height:1.3}
+  body[data-mode=tablet] .public-qr-card p{font-size:16px;line-height:1.45}
+  body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .public-qr-card strong{font-size:18px}
+  body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .public-qr-card p{font-size:15px;line-height:1.4}
+  body[data-mode=tablet] .slot-days button{font-size:18px;line-height:1.25;padding:6px 4px}
+  body[data-mode=tablet] .slot-times button{font-size:18px;line-height:1.3;padding:8px 3px}
+  body[data-mode=tablet] .slot-times button[aria-pressed=true]{padding:7px 2px}
+  body[data-mode=tablet] .booking-panel .field-label{font-size:17px}
+  body[data-mode=tablet] .consultation-length{font-size:16px}
+  body[data-mode=tablet] #studio{grid-template-columns:126px 150px minmax(230px,1fr) minmax(0,1.5fr);gap:12px 16px}
+  body[data-mode=tablet] .capture-card:has(#studio:not([hidden])){padding:20px}
+  body[data-mode=tablet] #studio h2{font-size:34px}
+  body[data-mode=tablet] #studio .eyebrow{font-size:12px;margin-bottom:5px}
+  body[data-mode=tablet] #close-studio{font-size:17px}
+  body[data-mode=tablet] #studio>.credit-bar strong{font-size:16px}
+  body[data-mode=tablet] #studio>#studio-status{font-size:15px;line-height:1.45}
+  body[data-mode=tablet] #studio-qr-dock .public-qr-card strong{font-size:16px}
+  body[data-mode=tablet] #studio #upload-zone>strong{font-size:16px;line-height:1.3}
+  body[data-mode=tablet] #studio #upload-zone>small{font-size:12px;line-height:1.4}
+  body[data-mode=tablet] #studio .colors-fieldset>legend,body[data-mode=tablet] #studio .surfaces-fieldset>legend{font-size:18px}
+  body[data-mode=tablet] #studio .color-options{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}
+  body[data-mode=tablet] #studio .color-choice{min-height:78px;font-size:14px;line-height:1.25;padding:6px 2px;gap:7px}
+  body[data-mode=tablet] #studio .color-choice>span{width:34px;height:34px}
+  body[data-mode=tablet] #studio .surface-options{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  body[data-mode=tablet] #studio .surface-options label{font-size:14px;line-height:1.35;min-height:52px;padding:7px;gap:6px}
+  body[data-mode=tablet] #studio .surfaces-fieldset>p{font-size:14px;margin:6px 0 9px}
+  body[data-mode=tablet] #studio>.visualizer-note{font-size:13px;line-height:1.45}
+  body[data-mode=tablet] #studio>#create-render{font-size:20px;min-height:56px}
+  body[data-mode=tablet] #studio>#render-status{font-size:16px;line-height:1.4}
+}
+@media(min-width:1240px){body[data-mode=tablet] .slot-days button,body[data-mode=tablet] .slot-times button{font-size:20px}}
+@media(min-width:760px) and (max-height:700px){
+  body[data-mode=tablet] .capture-card:has(#studio:not([hidden])){padding:12px 16px}
+  body[data-mode=tablet] #studio{gap:8px 14px}
+  body[data-mode=tablet] #studio h2{font-size:30px}
+  body[data-mode=tablet] #studio .color-choice{min-height:70px;font-size:13px}
+  body[data-mode=tablet] #studio .color-choice>span{width:30px;height:30px}
+  body[data-mode=tablet] #studio .surface-options label{font-size:13px;min-height:46px;padding:5px 6px}
+  body[data-mode=tablet] #studio>#studio-status{font-size:13px}
+}
+@media(min-width:760px) and (max-width:959px){
+  body[data-mode=tablet] #studio{grid-template-columns:112px 150px minmax(0,1fr)}
+  body[data-mode=tablet] #studio .surface-options{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+/* The larger invitation stays in one panel, with its portfolio photos beside it. */
+@media(min-width:760px){
+  body[data-mode=tablet]:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])){height:100dvh}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])){min-height:0;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"intro invitation" "photos invitation";gap:12px 24px;margin:4px auto 10px}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .booth-intro{grid-area:intro;padding:0}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .booth-intro>h1{font-size:32px;margin-bottom:12px}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .booth-description{display:none}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .public-qr-card{grid-template-columns:116px minmax(0,1fr);gap:12px;padding:10px;margin:0}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .public-qr{width:116px}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .capture-column{grid-area:invitation;min-height:0}
+  body[data-mode=tablet] .capture-card:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden]))>.connection-status{display:none}
+  body[data-mode=tablet] #saved-panel:has(#booking-invitation:not([hidden]))>.receipt{padding-bottom:14px;margin-bottom:18px}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .booth-gallery{grid-area:photos;min-height:0;grid-template-columns:1fr;grid-template-rows:repeat(2,minmax(0,1fr));gap:12px}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .booth-result:nth-child(n+3){display:none}
+  body[data-mode=tablet] .page-layout:has(#saved-panel:not([hidden]) #booking-invitation:not([hidden])) .booth-result>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+}

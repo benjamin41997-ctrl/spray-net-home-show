@@ -13,6 +13,7 @@ import { createRenderPreview } from './render-preview.js';
 import { tabletHandoff } from './tablet-handoff.js';
 import { renderBalance } from './render-balance.js';
 import { createStudioLayout } from './studio-layout.js';
+import { setBusy } from './ui-feedback.js';
 const config = window.SPRAYNET_CONFIG || {};
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
@@ -35,11 +36,6 @@ function readSession() {return visitorStorage.read();}
 function saveSession(extra = {}) {visitorStorage.save({apiBase,...extra});}
 function leadToken() { const b = crypto.getRandomValues(new Uint8Array(32)); return btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''); }
 function message(text = '') { const el = $('#form-alert'); el.textContent = text; el.hidden = !text; }
-function setBusy(button, busy, label) {
-  button.disabled = busy;
-  if (busy) { button.dataset.label = button.textContent; button.textContent = label; }
-  else if (button.dataset.label) { button.textContent = button.dataset.label; delete button.dataset.label; }
-}
 function objectUrl(blob) { const url = URL.createObjectURL(blob); state.urls.add(url); return url; }
 function release(url) { URL.revokeObjectURL(url); state.urls.delete(url); }
 function unlocked() { return state.session?.visualizerUnlocked === true && state.session?.booking?.status === 'confirmed'; }
@@ -370,7 +366,7 @@ async function addPhotos(files) {
       const error = validatePhoto(file); if (error) {message(error);continue;}
       const url = objectUrl(file); let photo;
       try { const image = new Image(); image.src = url; await image.decode(); if (image.width*image.height > 50000000) throw new Error('Please choose a smaller photo.');
-        photo = {file,url,remote:null}; state.photos.push(photo); studioPhotos();
+        photo = {file,url,remote:null}; state.photos.push(photo);state.selectedPhoto=state.photos.length-1; studioPhotos();$('#render-status').textContent='New photo selected.';
       } catch {release(url);message('That photo could not be opened. Please choose another JPG, PNG, or WebP.');continue;}
       try { await uploadPhoto(photo); studioPhotos(); } catch (e) { await handleStudioError(e); break; }
     }
@@ -387,7 +383,7 @@ $('#create-render').addEventListener('click', async () => {
   let surfaces;
   try {if(!state.pendingRender)surfaces=selectedSurfaces($$('#surface-options input:checked').map(input=>input.value));}
   catch(error){message(error.message);$('#surface-options input').focus();return;}
-  state.busy = true; const button = $('#create-render'), status = $('#render-status'); setBusy(button,true,'Creating your new look…');updateRenderAvailability();message();
+  state.busy = true; const button = $('#create-render'), status = $('#render-status'); setBusy(button,true,'Creating your new look…');status.classList.add('is-rendering');status.setAttribute('aria-busy','true');updateRenderAvailability();message();
   try {
     if (!state.pendingRender) {const photo = state.photos[state.selectedPhoto], color = COLORS[state.color]; await uploadPhoto(photo);studioPhotos();
       state.pendingRender = {key:crypto.randomUUID(),body:{photoId:photo.remote.id,colorName:color.name,colorHex:color.hex,surfaces},color}; saveSession({pendingRender:state.pendingRender});}
@@ -401,7 +397,7 @@ $('#create-render').addEventListener('click', async () => {
     state.completedRender = {result,color:pending.color};saveSession({completedRender:state.completedRender});$('#retry-image').hidden = false;
     await showRender(result,pending.color,{present:true}); state.completedRender = null;saveSession({completedRender:null});$('#retry-image').hidden = true;status.textContent = 'Your new look is ready. Save the image or try another color.';
   } catch (e) { if ([400,404].includes(e.status)) {state.pendingRender = null;saveSession({pendingRender:null});} status.textContent = '';await handleStudioError(e);}
-  finally {state.busy = false;setBusy(button,false);updateRenderAvailability();}
+  finally {state.busy = false;setBusy(button,false);status.classList.remove('is-rendering');status.setAttribute('aria-busy','false');updateRenderAvailability();}
 });
 $('#retry-image').addEventListener('click', async () => {
   if (state.busy || !unlocked() || !state.completedRender) return; state.busy = true; const button = $('#retry-image');setBusy(button,true,'Retrieving image…');

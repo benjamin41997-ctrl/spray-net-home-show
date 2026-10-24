@@ -19,6 +19,8 @@ Both contact forms support native browser autofill and local address suggestions
 
 The visualizer uses photo, color and surface choices, with no custom-prompt field. New results open in a large Save image/Back to editing preview. Saved results can be viewed larger without spending another credit. [Visualizer behavior and current cost estimate](docs/VISUALIZER.md).
 
+Pure white (`#FFFFFF`) is included in the palette. New uploads automatically become the active photo, with credits unchanged until a render is created. Busy actions show an accessible progress spinner. Tablet invitations, QR captions, scheduling options and studio controls use larger text.
+
 The tablet studio uses a full-width controls panel above its preview gallery. The single QR, upload/photo selectors, colors and surface choices stay in that top panel. Generated previews share the full bottom row equally and get narrower as the gallery grows to five, with View larger and Save image on each. Browser checks with synthetic media verified one-screen layouts at 1024×768 and 960×600; mobile retains its original media placement.
 
 The site installs as a tablet app, with branded home-screen icons and a public `?mode=tablet` launch. Use **Install tablet app** in the tablet footer, or the browser's installation menu. Supported devices use fullscreen, with standalone web-app view as a fallback. No customer data or app shell is cached by its service worker; internet is still required. [Installation steps](docs/INSTALL-APP.md).
