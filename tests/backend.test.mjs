@@ -243,6 +243,56 @@ test('owner stages reflect authoritative booking, upload and completed render re
   const filtered=await(await request(env,'/api/admin/leads?stage=visualizations_created',{token:env.ADMIN_TOKEN})).json();assert.equal(filtered.total,1);assert.equal(filtered.leads[0].id,people[5].id);
 });
 
+test('scheduling follow-up is private, durable, idempotent and filterable without booking or unlocking renders',async()=>{
+  const env=environment({BOOKING_PROVIDER:'internal'}),person=await lead(env,{name:'Callback visitor',phone:'7045550901',contactConsent:true});
+  const path=`/api/leads/${person.id}/consultation/follow-up`,sessionPath=`/api/leads/${person.id}/session`;
+  const before=await(await request(env,sessionPath,{token:person.token})).json();
+  assert.equal(before.schedulingFollowUpRequestedAt,null);
+  for(const token of [undefined,'wrong-token'])assert.equal((await request(env,path,{method:'POST',body:{},token})).status,401);
+  assert.equal((await request(env,path,{method:'POST',body:{leadId:person.id},token:person.token})).status,400);
+  const first=await request(env,path,{method:'POST',body:{},token:person.token});assert.equal(first.status,200);assert.equal(first.headers.get('cache-control'),'no-store');
+  const saved=await first.json();assert.ok(Number.isFinite(Date.parse(saved.schedulingFollowUpRequestedAt)));
+  assert.deepEqual(await(await request(env,path,{method:'POST',body:{},token:person.token})).json(),saved);
+  await request(env,`/api/leads/${person.id}/consultation`,{method:'POST',body:{consultationPreference:'schedule_now'},token:person.token});
+  const session=await(await request(env,sessionPath,{token:person.token})).json();
+  assert.equal(session.schedulingFollowUpRequestedAt,saved.schedulingFollowUpRequestedAt);assert.equal(session.visualizerUnlocked,false);
+  assert.equal(session.remainingRenders,before.remainingRenders);assert.equal(session.booking.status,'none');
+  const owner=await(await request(env,'/api/admin/leads?stage=scheduling_followup',{token:env.ADMIN_TOKEN})).json();
+  assert.equal(owner.total,1);assert.equal(owner.leads[0].id,person.id);assert.equal(owner.leads[0].schedulingFollowUpRequestedAt,saved.schedulingFollowUpRequestedAt);
+  const csv=await(await request(env,'/api/admin/leads.csv',{token:env.ADMIN_TOKEN})).text();assert.ok(csv.includes('scheduling_followup_requested_at')&&csv.includes(saved.schedulingFollowUpRequestedAt));
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM consultation_bookings').get().n,0);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM daily_attempts').get().n,0);
+});
+
+test('follow-up cannot replace pending or confirmed appointments and later real booking resolves the flag',async()=>{
+  const env=environment({BOOKING_PROVIDER:'internal'}),person=await lead(env),path=`/api/leads/${person.id}/consultation/follow-up`;
+  for(const status of ['pending','confirmed']){
+    confirmBooking(env,person,status);
+    const denied=await request(env,path,{method:'POST',body:{},token:person.token});assert.equal(denied.status,409);assert.equal((await denied.json()).error.code,'BOOKING_ALREADY_ACTIVE');
+  }
+  confirmBooking(env,person,'cancelled');assert.equal((await request(env,path,{method:'POST',body:{},token:person.token})).status,200);
+  env.DB.sqlite.prepare('UPDATE consultation_bookings SET calendar_key=? WHERE lead_id=?').run('internal:ben.hessler@spray-net.com',person.id);
+  const slots=await(await request(env,`/api/leads/${person.id}/consultation/slots`,{token:person.token})).json();assert.ok(slots.slots.length);
+  const booked=await request(env,`/api/leads/${person.id}/consultation/book`,{method:'POST',token:person.token,key:crypto.randomUUID(),body:{start:slots.slots[0].start}});
+  assert.equal(booked.status,200);assert.equal((await booked.json()).visualizerUnlocked,true);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM scheduling_followups').get().n,0);
+  const owner=await(await request(env,'/api/admin/leads',{token:env.ADMIN_TOKEN})).json();assert.equal(owner.leads[0].stage,'consultation_booked');assert.equal(owner.leads[0].schedulingFollowUpRequestedAt,null);
+  await request(env,`/api/admin/bookings/${person.id}/cancel`,{method:'POST',token:env.ADMIN_TOKEN});
+  const session=await(await request(env,`/api/leads/${person.id}/session`,{token:person.token})).json();assert.equal(session.schedulingFollowUpRequestedAt,null);
+});
+
+test('follow-up migration is additive and repeatable; deleting a lead removes only its callback request',async()=>{
+  const env=environment(),person=await lead(env),other=await lead(env,{...sample(),phone:'7045550902'}),path=id=>`/api/leads/${id}/consultation/follow-up`;
+  env.DB.sqlite.exec('DROP TABLE scheduling_followups');
+  const before=env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id);
+  const migration=readFileSync(new URL('../backend/migrations/0008_scheduling_followups.sql',import.meta.url),'utf8');env.DB.sqlite.exec(migration);env.DB.sqlite.exec(migration);
+  assert.deepEqual(env.DB.sqlite.prepare('SELECT * FROM leads WHERE id=?').get(person.id),before);
+  assert.equal((await request(env,path(person.id),{method:'POST',body:{},token:other.token})).status,401);
+  for(const p of [person,other])assert.equal((await request(env,path(p.id),{method:'POST',body:{},token:p.token})).status,200);
+  env.DB.sqlite.prepare('DELETE FROM leads WHERE id=?').run(person.id);
+  const rows=env.DB.sqlite.prepare('SELECT * FROM scheduling_followups').all();assert.equal(rows.length,1);assert.equal(rows[0].lead_id,other.id);
+});
+
 test('manual draft markers are owner-only, separate per channel and persist in both lead and calendar reads',async()=>{
   const env=environment({BOOKING_PROVIDER:'internal'}),person=await lead(env);confirmBooking(env,person);
   env.DB.sqlite.prepare('UPDATE consultation_bookings SET calendar_key=? WHERE lead_id=?').run('internal:ben.hessler@spray-net.com',person.id);

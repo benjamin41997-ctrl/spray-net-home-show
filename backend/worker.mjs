@@ -11,6 +11,7 @@ import { OwnerAuthError, requireOwner } from './owner-auth.mjs';
 import { selectedSurfaces } from '../public/project-options.js';
 import { customRenderPrompt } from '../public/render-settings.js';
 import { ensureRenderQuota,readRenderQuota } from './render-quota.mjs';
+import {schedulingFollowUp,requestSchedulingFollowUp} from './scheduling-followup.mjs';
 const MAX_PHOTO = 10 * 1024 * 1024;
 const MAX_RESULT = 15 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -451,11 +452,13 @@ async function exportCsv(request, env) {
   if (count.count > 10000) fail(413, 'EXPORT_TOO_LARGE', 'Export exceeds 10,000 leads. Use an administrator database export.');
   const { results } = await env.DB.prepare(`SELECT l.id,l.first_name,l.last_name,l.email,l.phone,l.address,l.city,l.state,l.zip,
     l.service,l.capture_mode,l.consultation_preference,l.timeline,l.notes,l.event_id,l.event_label,l.consent_at,l.consent_version,l.remaining_renders,l.created_at,
+    (SELECT requested_at FROM scheduling_followups f WHERE f.lead_id=l.id AND NOT EXISTS
+      (SELECT 1 FROM consultation_bookings b WHERE b.lead_id=l.id AND b.status IN ('pending','confirmed'))) AS scheduling_followup_requested_at,
     (SELECT COUNT(*) FROM photos p WHERE p.lead_id=l.id AND p.status='ready') AS photo_count,
     (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='completed') AS render_count
     FROM leads l ORDER BY l.created_at DESC LIMIT 10000`).all();
   const columns = ['id','first_name','last_name','email','phone','address','city','state','zip','service','capture_mode','consultation_preference','timeline','notes',
-    'event_id','event_label','consent_at','consent_version','remaining_renders','created_at','photo_count','render_count'];
+    'event_id','event_label','consent_at','consent_version','remaining_renders','created_at','photo_count','render_count','scheduling_followup_requested_at'];
   const csv = '\uFEFF' + [columns.map(csvCell).join(','), ...results.map(row => columns.map(c => csvCell(row[c])).join(','))].join('\r\n');
   return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="home-show-leads.csv"' } });
 }
@@ -467,6 +470,7 @@ async function route(request, env, config, context) {
       try {
         await env.DB.prepare('SELECT id,phone_normalized,capture_mode FROM leads LIMIT 1').first();
         await env.DB.prepare('SELECT lead_id FROM consultation_bookings LIMIT 1').first();
+        await env.DB.prepare('SELECT lead_id FROM scheduling_followups LIMIT 1').first();
         if (env.BOOKING_PROVIDER === 'internal') await env.DB.prepare('SELECT id FROM booking_time_blocks LIMIT 1').first();
       } catch { ready = false; }
     }
@@ -559,9 +563,19 @@ async function route(request, env, config, context) {
       if (env.BOOKING_PROVIDER !== 'internal')
         await env.DB.prepare("UPDATE leads SET address=?,email=?,city=?,state=?,zip=?,consultation_preference='schedule_now' WHERE id=?")
           .bind(address.trim(), email, city, state, zip, lead.id).run();
-      return json(await bookingFor(env, lead));
+      const booked=await bookingFor(env, lead);
+      if(booked.booking?.status==='confirmed')await env.DB.prepare('DELETE FROM scheduling_followups WHERE lead_id=?').bind(lead.id).run();
+      return json(booked);
     }
     fail(405, 'METHOD_NOT_ALLOWED', 'This request method is not supported.');
+  }
+  const followUp=pathname.match(/^\/api\/leads\/([^/]+)\/consultation\/follow-up$/);
+  if(followUp && UUID.test(followUp[1])) {
+    const lead=await leadFor(request,env,followUp[1]);
+    if(method!=='POST')fail(405,'METHOD_NOT_ALLOWED','Use the scheduling follow-up option.');
+    const body=await readJson(request);
+    if(!body || typeof body!=='object' || Array.isArray(body) || Object.keys(body).length)fail(400,'INVALID_BODY','Choose the scheduling follow-up option.');
+    return json(await requestSchedulingFollowUp(env,lead.id));
   }
   const consultation = pathname.match(/^\/api\/leads\/([^/]+)\/consultation$/);
   if (consultation && UUID.test(consultation[1]) && method === 'POST') {
@@ -581,6 +595,7 @@ async function route(request, env, config, context) {
     const renders = booking.visualizerUnlocked ? (await env.DB.prepare(`SELECT id,status,color_name,color_hex,surface,error_code FROM renders
       WHERE lead_id=? ORDER BY created_at`).bind(lead.id).all()).results : [];
     return json({ id: lead.id, ...quota,consultationPreference: lead.consultation_preference,
+      schedulingFollowUpRequestedAt:await schedulingFollowUp(env,lead.id),
       lead: publicLead(lead), ...booking,
       photos: photos.map(photo => ({ id: photo.id, url: `/api/leads/${lead.id}/photos/${photo.id}` })),
       renders: renders.map(render => ({ id: render.id, status: render.status,

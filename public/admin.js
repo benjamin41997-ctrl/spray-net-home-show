@@ -7,7 +7,7 @@ import { renderWeekCalendar, calendarWeekLabel, calendarTime, directionsLink, pr
 
 const EASTERN_ZONE = 'America/New_York';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const STAGES = {lead_submitted:'Lead received',consultation_requested:'Scheduling started',booking_pending:'Booking pending',
+const STAGES = {lead_submitted:'Lead received',consultation_requested:'Scheduling started',scheduling_followup:'Scheduling follow-up',booking_pending:'Booking pending',
   consultation_booked:'Consultation booked',photos_uploaded:'Photos uploaded',visualizations_created:'Visualizations created',consultation_cancelled:'Consultation cancelled'};
 const localParts = new Intl.DateTimeFormat('en-US', { timeZone: EASTERN_ZONE, calendar: 'iso8601', numberingSystem: 'latn',
   year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -213,6 +213,7 @@ function initializeAdmin() {
       card.append(header,element('p','lead-created',`Submitted ${formatEasternInstant(lead.createdAt)} · ${lead.captureMode==='tablet'?'Booth tablet':'Mobile'}`),detail('Phone',lead.phone,true));
       if(lead.email)card.append(detail('Email',lead.email));
       card.append(detail('Project address',lead.address));
+      if(lead.schedulingFollowUpRequestedAt)card.append(element('p','lead-followup','Requested a call to schedule a convenient time.'));
       if(lead.booking?.start && validInstant(lead.booking.start)) card.append(element('p','lead-booking',`${lead.booking.status==='confirmed'?'Consultation':lead.booking.status==='cancelled'?'Cancelled consultation':'Pending consultation'} · ${formatEasternInstant(lead.booking.start)}`));
       const progress=element('div','lead-progress');
       for(const [value,label] of [[lead.visitCount,'Recorded visits'],[lead.photoCount,'Photos uploaded'],[lead.renderCount,'Renders completed']]) {

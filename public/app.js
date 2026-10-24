@@ -19,7 +19,7 @@ const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAl
 const form = $('#lead-form'), mode = new URLSearchParams(location.search).get('mode') === 'tablet' ? 'tablet' : 'mobile';
 document.body.dataset.mode = mode;
 setupTabletApp({mode,button:$('#install-app'),dialog:$('#install-dialog'),install:$('#install-native'),fullscreen:$('#install-fullscreen'),close:$('#close-install'),status:$('#install-status')});
-const studioLayout=createStudioLayout({mode,studio:$('#studio'),results:$('#render-results'),resultHome:$('#studio-result-home'),sidebar:$('#tablet-studio-media'),resultDock:$('#tablet-render-dock'),qr:$('.public-qr-card'),qrHome:$('.booth-intro'),qrDock:$('#studio-qr-dock')});
+const studioLayout=createStudioLayout({mode,studio:$('#studio'),results:$('#render-results'),resultHome:$('#studio-result-home'),sidebar:$('#tablet-studio-media'),resultDock:$('#tablet-render-dock')});
 let tabStorage,persistentStorage;try{tabStorage=sessionStorage;persistentStorage=localStorage;}catch{}
 const visitorStorage=createVisitorStorage(mode,tabStorage,persistentStorage);
 const incoming = parseStudioAccess(location.hash);
@@ -77,6 +77,11 @@ function showSaved({ focus = false } = {}) {
   const name=String(state.session?.lead?.firstName || state.session?.lead?.name || '').trim().split(/\s+/)[0];
   $('#saved-title').textContent=name?`Thanks, ${name}, you’re on our list.`:'Thanks, you’re on our list.';
   const confirmed = unlocked(); $('#confirmed-panel').hidden = !confirmed; $('#booking-invitation').hidden = confirmed;
+  syncSchedulingFollowUp();
+  if (!confirmed && state.session?.schedulingFollowUpRequestedAt) {
+    $('#booking-invitation').hidden=true;$('#booking-panel').hidden=false;
+    $('#booking-status').textContent='';$('#slot-picker').hidden=true;$('#booking-form').hidden=true;
+  }
   const calendar = $('#download-appointment'); calendar.hidden = true;
   if (calendar.dataset.objectUrl) { release(calendar.dataset.objectUrl); delete calendar.dataset.objectUrl; calendar.removeAttribute('href'); }
   if (confirmed) {
@@ -222,8 +227,29 @@ async function loadSlots() {
     if (clearRejectedBooking(e)) $('#booking-status').textContent = `${e.message} Use Refresh to choose another time.`;
     else $('#booking-status').textContent = e.message;
   }
-  finally { state.busy = false; }
+  finally { state.busy = false; syncSchedulingFollowUp(); }
 }
+function syncSchedulingFollowUp() {
+  const requested=Boolean(state.session?.schedulingFollowUpRequestedAt),button=$('#request-scheduling-followup');
+  button.disabled=state.busy || requested || Boolean(state.pendingBooking) || ['pending','confirmed'].includes(state.session?.booking?.status);
+  button.textContent=requested?'Follow-up requested':"These times don’t work for me";
+  $('#scheduling-followup-status').textContent=requested?'I’ll reach out to schedule a convenient time.':'';
+  $('#scheduling-followup-status').hidden=requested && !$('#slot-picker').hidden;
+}
+$('#request-scheduling-followup').addEventListener('click',async()=>{
+  if(state.busy || !state.lead || state.pendingBooking)return;
+  state.busy=true;const button=$('#request-scheduling-followup');setBusy(button,true,'Saving your request…');
+  try {
+    const data=await request(`/api/leads/${state.lead.id}/consultation/follow-up`,{method:'POST',token:state.lead.token,body:{}});
+    if(!data.schedulingFollowUpRequestedAt)throw new Error('We could not verify your request. Please try again.');
+    state.session.schedulingFollowUpRequestedAt=data.schedulingFollowUpRequestedAt;
+    $('#slot-picker').hidden=true;$('#booking-form').hidden=true;$('#booking-status').textContent='';
+  }catch(error){$('#scheduling-followup-status').textContent=error.name==='TimeoutError'?'We could not confirm your request. Please try again.':error.message;}
+  finally {
+    state.busy=false;setBusy(button,false);
+    if(state.session?.schedulingFollowUpRequestedAt)syncSchedulingFollowUp();
+  }
+});
 async function finishBooking(pending) {
   $('#booking-address').value = pending.body.address;
   bookingAddress.adopt({display:pending.body.address,street:pending.body.address,city:pending.body.city || '',state:pending.body.state || '',zip:pending.body.zip || ''}); $('#booking-email').value = pending.body.email || '';
@@ -264,6 +290,7 @@ function clearTabletForm() {
   leadAddress.clear();bookingAddress.clear();
   for (const id of ['#render-results','#studio-photos','#slot-days','#slot-times']) $(id).replaceChildren();
   for (const id of ['#booking-status','#render-status','#selected-time','#confirmed-time','#confirmed-address']) $(id).textContent = '';
+  syncSchedulingFollowUp();
   surfaceOptions();
   $('#retry-image').hidden = true;
   $('#download-appointment').removeAttribute('href'); delete $('#download-appointment').dataset.objectUrl; $('#download-appointment').hidden = true;

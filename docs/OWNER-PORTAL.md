@@ -6,6 +6,8 @@ The official Supabase client persists and refreshes the session under the review
 
 Every owner API request verifies the provider token server-side and requires the confirmed `OWNER_EMAIL`. Local session contents and visitor project tokens do not grant owner access. Configure `SUPABASE_URL`, its public `SUPABASE_PUBLISHABLE_KEY`, and `OWNER_EMAIL` on the Worker. Only the URL/publishable key belong in public config. The separate `ADMIN_TOKEN` remains a private operator/export credential, outside the website login; keep its protected local access file private and outside Git. Search, stage filters and 50-row pages cover all saved leads; CSV export retains its existing import columns.
 
+Use the **Scheduling follow-up** stage filter to find visitors who selected **These times don’t work for me**. Their cards say **Requested a call to schedule a convenient time**. This is an explicit request, distinct from merely opening scheduling. It persists across devices and exports as `scheduling_followup_requested_at`; a later confirmed booking clears it. The request sends no automatic message and reserves no appointment.
+
 ## Delete a test lead
 
 Each lead card has a **Delete lead** button with a confirmation naming the lead and phone number. This permanently removes that lead, internal booking, photos, visualizations and visit history, revokes its old project link, and frees the phone number for another submission. On a booth tablet, choose **Next visitor** to start again; refreshing a visitor page also clears deleted saved access and opens a new form.

@@ -2,7 +2,7 @@
  * IP addresses or browser fingerprints are exposed by the owner dashboard. */
 import { confirmationDraftColumns, confirmationDraftValues } from './confirmation-drafts.mjs';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const STAGES = ['lead_submitted','consultation_requested','booking_pending','consultation_booked','photos_uploaded','visualizations_created','consultation_cancelled'];
+const STAGES = ['lead_submitted','consultation_requested','scheduling_followup','booking_pending','consultation_booked','photos_uploaded','visualizations_created','consultation_cancelled'];
 export class OwnerError extends Error {
   constructor(status,code,message) {super(message);this.status=status;this.code=code;}
 }
@@ -82,6 +82,7 @@ export async function markConfirmationDraft(env,leadId,body) {
 const PROGRESS = `WITH progress AS (
   SELECT l.id,l.first_name,l.last_name,l.phone,l.phone_normalized,l.email,l.address,l.city,l.state,l.zip,
     l.event_label,l.capture_mode,l.consultation_preference,l.remaining_renders,l.created_at,
+    (SELECT requested_at FROM scheduling_followups f WHERE f.lead_id=l.id) AS scheduling_followup_requested_at,
     b.status AS booking_status,b.start_at AS booking_start,b.end_at AS booking_end,b.transaction_id AS draft_version,${confirmationDraftColumns},
     (SELECT COUNT(*) FROM photos p WHERE p.lead_id=l.id AND p.status='ready') AS photo_count,
     (SELECT COUNT(*) FROM renders r WHERE r.lead_id=l.id AND r.status='completed') AS render_count,
@@ -90,11 +91,12 @@ const PROGRESS = `WITH progress AS (
     (SELECT MAX(accessed_at) FROM lead_visits v WHERE v.lead_id=l.id) AS last_accessed_at
   FROM leads l LEFT JOIN consultation_bookings b ON b.lead_id=l.id
 ), staged AS (SELECT progress.*,CASE
-  WHEN booking_status='cancelled' THEN 'consultation_cancelled'
   WHEN booking_status='pending' THEN 'booking_pending'
   WHEN booking_status='confirmed' AND render_count>0 THEN 'visualizations_created'
   WHEN booking_status='confirmed' AND photo_count>0 THEN 'photos_uploaded'
   WHEN booking_status='confirmed' THEN 'consultation_booked'
+  WHEN scheduling_followup_requested_at IS NOT NULL THEN 'scheduling_followup'
+  WHEN booking_status='cancelled' THEN 'consultation_cancelled'
   WHEN consultation_preference='schedule_now' THEN 'consultation_requested'
   ELSE 'lead_submitted' END AS stage FROM progress)
 `;
@@ -124,7 +126,8 @@ export async function listOwnerLeads(env,url) {
     overview:{total:overview.total,booked:overview.booked,needsBooking:overview.needs_booking,visualizerUsed:overview.visualizer_used},
     leads:rows.results.map(row => ({id:row.id,name:`${row.first_name} ${row.last_name}`.trim(),phone:row.phone,email:row.email,
       address:row.address,city:row.city,state:row.state,zip:row.zip,event:row.event_label,captureMode:row.capture_mode,createdAt:row.created_at,
-      stage:row.stage,booking:{status:row.booking_status || 'none',start:row.booking_start || null,end:row.booking_end || null,
+      stage:row.stage,schedulingFollowUpRequestedAt:row.stage==='scheduling_followup'?row.scheduling_followup_requested_at:null,
+      booking:{status:row.booking_status || 'none',start:row.booking_start || null,end:row.booking_end || null,
         draftVersion:row.draft_version||null,confirmationDrafts:confirmationDraftValues(row)},
       photoCount:row.photo_count,renderCount:row.render_count,pendingRenderCount:row.pending_render_count,remainingRenders:row.remaining_renders,
       visitCount:row.visit_count,lastAccessedAt:row.last_accessed_at || null}))};

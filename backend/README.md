@@ -29,7 +29,7 @@ Use separate cryptographically random base64url or hexadecimal secrets, at least
 
 `GET /api/health` must return `ready: true` before public submissions. It checks bindings, configuration, and the lead table. It does not prove cloud account billing, R2 write permissions, or a renderer's account access. Test a complete private submission and export before use.
 
-`schema.sql` initializes a new database. For an existing database, inspect its schema/recovery state and apply the relevant migrations before deploying; `CREATE TABLE IF NOT EXISTS` does not upgrade old columns or constraints. This release requires `0007_durable_render_quotas.sql`. Do not recreate the production database or blindly rerun older migrations. See [migration instructions](../docs/SETUP.md#existing-database-migration).
+`schema.sql` initializes a new database. For an existing database, inspect its schema/recovery state and apply the relevant migrations before deploying; `CREATE TABLE IF NOT EXISTS` does not upgrade old columns or constraints. This release requires `0007_durable_render_quotas.sql` and `0008_scheduling_followups.sql`. Do not recreate the production database or blindly rerun older migrations. See [migration instructions](../docs/SETUP.md#existing-database-migration).
 
 ## Enable real renders
 

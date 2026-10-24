@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 CREATE INDEX IF NOT EXISTS leads_phone_event ON leads(phone_normalized, event_id);
 
+CREATE TABLE IF NOT EXISTS scheduling_followups (
+  lead_id TEXT PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  requested_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS consultation_bookings (
   lead_id TEXT PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
   calendar_key TEXT NOT NULL,

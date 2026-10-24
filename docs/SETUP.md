@@ -74,6 +74,8 @@ Review recovery state and schema first, and never drop the operating lead table.
 
 Existing databases also need `0007_durable_render_quotas.sql` before deploying the matching Worker. It preserves used renders when increasing the allowance from three to five. The Worker enrolls legacy phone/event usage before a session, render, or owner deletion; the minimal hashed quota records survive deletion of lead/media records. Fresh current schema.sql already includes these quota tables and triggers. See [VISUALIZER.md](VISUALIZER.md) for migration and limit details.
 
+Apply additive `0008_scheduling_followups.sql` before deploying scheduling callback support. It adds one private callback timestamp per existing lead without changing contact details, bookings, or credits. A confirmed booking resolves the flag; lead deletion cascades its follow-up record. Fresh `schema.sql` includes the table.
+
 ~~~sh
 npx wrangler deploy --config backend/wrangler.jsonc
 ~~~

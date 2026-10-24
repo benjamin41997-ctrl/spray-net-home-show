@@ -95,6 +95,12 @@ body[data-mode=mobile] .capture-card:has(#saved-panel:not([hidden]))>.connection
 .muted{color:var(--muted);font-size:12px;line-height:1.6}
 .booking-status,.studio-status{font-size:12px;line-height:1.6;color:var(--muted);margin:13px 0;overflow-wrap:anywhere}
 .booking-status:empty,.studio-status:empty{display:none}
+.booking-options{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap}
+.booking-options .consultation-length{margin:0}
+#request-scheduling-followup{min-height:44px;font-size:14px;text-align:left}
+#request-scheduling-followup:disabled{opacity:1;color:var(--muted);text-decoration:none}
+#scheduling-followup-status{padding:12px 14px;border-radius:8px;background:var(--green-pale);color:var(--green);font-size:16px;line-height:1.5;margin:8px 0}
+#scheduling-followup-status:empty{display:none}
 .field-label{display:flex;justify-content:space-between;align-items:baseline;margin:21px 0 11px}
 .field-label>span{font-size:10px;white-space:nowrap}
 .slot-days{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 -3px 14px;padding:3px;}
@@ -382,7 +388,7 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
   body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .public-qr-card strong{font-size:14px}
   body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .public-qr-card p{font-size:12px;line-height:1.4;margin-top:6px}
   body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .capture-column{grid-area:calendar}
-  body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .capture-card{padding:18px}
+  body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .capture-card{padding:14px 18px}
   body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .booth-gallery{grid-area:photos;grid-template-columns:1fr;grid-template-rows:repeat(2,minmax(120px,1fr));gap:12px}
   body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .booth-result:nth-child(n+3){display:none}
   body[data-mode=tablet] .page-layout:has(#booking-panel:not([hidden])) .booth-result>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -440,7 +446,7 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
 .footer-actions{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:flex-end}.install-dialog h2{margin:10px 25px 18px 0}.install-dialog>p{margin-top:14px}.install-dialog ol{padding-left:22px;margin:18px 0}.install-dialog li+li{margin-top:14px}.install-actions{display:grid;gap:10px;margin-top:20px}.install-actions .button{margin-top:0}.install-dialog #install-status:empty{display:none}
 
 /* Full-width tablet studio above an adaptive, single-row preview gallery.
-   Existing media controls and QR are reused; phones keep their normal order. */
+   Uploaded photos share the left column; the private QR stays on the prior screen. */
 @media(min-width:760px){
   body[data-mode=tablet]:has(#studio:not([hidden])){height:100dvh}
   body[data-mode=tablet]:has(#studio:not([hidden])) .site-header{min-height:64px}
@@ -449,41 +455,38 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
   body[data-mode=tablet] .page-layout:has(#studio:not([hidden])) .capture-column{grid-area:studio;min-height:0}
   body[data-mode=tablet] .capture-card:has(#studio:not([hidden])){padding:16px 18px}
   body[data-mode=tablet] .capture-card:has(#studio:not([hidden]))>.connection-status{display:none}
-  body[data-mode=tablet] #studio{display:grid;grid-template-columns:112px 140px minmax(190px,1fr) minmax(0,1.8fr);gap:8px 14px;align-items:start}
+  body[data-mode=tablet] #studio{display:grid;grid-template-columns:minmax(220px,.9fr) minmax(220px,1fr) minmax(0,1.5fr);gap:8px 14px;align-items:start}
   body[data-mode=tablet] #studio>*{min-width:0;grid-column:1/-1}
-  body[data-mode=tablet] #studio>.section-top{grid-column:1/4;grid-row:1;align-items:center;margin:0;gap:16px}
+  body[data-mode=tablet] #studio>.section-top{grid-column:1/3;grid-row:1;align-items:center;margin:0;gap:16px}
   body[data-mode=tablet] #studio h2{font-size:28px}
   body[data-mode=tablet] #studio .eyebrow{font-size:9px;margin-bottom:4px}
   body[data-mode=tablet] #close-studio{min-width:44px;min-height:44px;display:grid;place-items:center;margin:0;font-size:13px}
-  body[data-mode=tablet] #studio>.credit-bar{grid-column:4;grid-row:1;align-self:center;justify-self:end;padding:9px 12px;margin:0;gap:7px;white-space:nowrap}
+  body[data-mode=tablet] #studio>.credit-bar{grid-column:3;grid-row:1;align-self:center;justify-self:end;padding:9px 12px;margin:0;gap:7px;white-space:nowrap}
   body[data-mode=tablet] #studio>.credit-bar strong{font-size:12px}
   body[data-mode=tablet] #studio>#studio-status{grid-row:2;margin:0;font-size:11px;line-height:1.4}
-  body[data-mode=tablet] #studio>#studio-qr-dock{grid-column:1;grid-row:3;align-self:stretch}
-  body[data-mode=tablet] #studio-qr-dock .public-qr-card{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:8px;margin:0;border:0;background:var(--pale);text-align:center}
-  body[data-mode=tablet] #studio-qr-dock .public-qr{width:clamp(96px,10vw,132px)}
-  body[data-mode=tablet] #studio-qr-dock .public-qr-card strong{font-size:12px;line-height:1.3}
-  body[data-mode=tablet] #studio-qr-dock .public-qr-card p{display:none}
-  body[data-mode=tablet] #studio>.studio-upload{grid-column:2;grid-row:3;align-self:stretch;display:flex;flex-direction:column;gap:8px}
-  body[data-mode=tablet] #studio #upload-zone{flex:1;min-height:76px;padding:8px;gap:5px}
+  body[data-mode=tablet] #studio>.studio-upload{grid-column:1;grid-row:3;display:flex;flex-direction:column;gap:10px}
+  body[data-mode=tablet] #studio #upload-zone{min-height:92px;padding:10px;gap:5px}
   body[data-mode=tablet] #studio #upload-zone>span{display:none}
   body[data-mode=tablet] #upload-zone>strong{font-size:13px}
   body[data-mode=tablet] #upload-zone>small{font-size:10px;line-height:1.35}
   body[data-mode=tablet] #studio-photo-home:has(.studio-photos:empty){display:none}
-  body[data-mode=tablet] #studio .studio-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:2px;margin:0}
+  body[data-mode=tablet] #studio .studio-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:2px;margin:0}
+  body[data-mode=tablet] #studio .studio-photos:not(:has(button:nth-child(3))){grid-template-columns:repeat(2,minmax(0,1fr))}
+  body[data-mode=tablet] #studio .studio-photos:not(:has(button:nth-child(2))){grid-template-columns:1fr}
   body[data-mode=tablet] #studio .studio-photos>button{width:100%;padding:2px}
-  body[data-mode=tablet] #studio .studio-photos img{width:100%;height:44px}
-  body[data-mode=tablet] #studio .studio-photos small{display:none}
-  body[data-mode=tablet] #studio>.colors-fieldset{grid-column:3;grid-row:3;margin:0}
+  body[data-mode=tablet] #studio .studio-photos img{width:100%;height:100px}
+  body[data-mode=tablet] #studio .studio-photos small{display:block;font-size:11px;padding:3px 1px 0}
+  body[data-mode=tablet] #studio>.colors-fieldset{grid-column:2;grid-row:3;margin:0}
   body[data-mode=tablet] #studio .colors-fieldset>legend{font-size:13px}
   body[data-mode=tablet] #studio .color-options{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:6px}
   body[data-mode=tablet] #studio .color-choice{min-height:60px;padding:6px 3px;gap:4px;font-size:11px}
   body[data-mode=tablet] #studio .color-choice>span{width:30px;height:30px}
-  body[data-mode=tablet] #studio>.surfaces-fieldset{grid-column:4;grid-row:3}
+  body[data-mode=tablet] #studio>.surfaces-fieldset{grid-column:3;grid-row:3}
   body[data-mode=tablet] #studio .surfaces-fieldset>p{font-size:11px;margin:4px 0 7px}
   body[data-mode=tablet] #studio .surface-options{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
   body[data-mode=tablet] #studio .surface-options label{min-height:48px;padding:7px;gap:6px;font-size:12px}
-  body[data-mode=tablet] #studio>.visualizer-note{grid-column:1/3;grid-row:4;align-self:center;margin:0;font-size:10px;line-height:1.4}
-  body[data-mode=tablet] #studio>#create-render{grid-column:3/5;grid-row:4;min-height:48px;margin:0;padding:10px;font-size:15px}
+  body[data-mode=tablet] #studio>.visualizer-note{grid-column:1;grid-row:4;align-self:center;margin:0;font-size:10px;line-height:1.4}
+  body[data-mode=tablet] #studio>#create-render{grid-column:2/4;grid-row:4;min-height:48px;margin:0;padding:10px;font-size:15px}
   body[data-mode=tablet] #studio>#render-status{margin:0;font-size:12px;line-height:1.4}
   body[data-mode=tablet] #studio>#retry-image{min-height:44px;margin:0;padding:8px}
   body[data-mode=tablet] #studio-result-home{display:none}
@@ -517,16 +520,16 @@ body[data-mode=tablet]>footer{width:min(1320px,calc(100% - 48px));padding-top:10
 @media(min-width:760px) and (max-width:959px){
   body[data-mode=tablet]:has(#studio:not([hidden])){height:auto}
   body[data-mode=tablet] .page-layout:has(#studio:not([hidden])){grid-template-rows:auto minmax(240px,1fr)}
-  body[data-mode=tablet] #studio{grid-template-columns:100px 140px minmax(0,1fr)}
-  body[data-mode=tablet] #studio>.section-top{grid-column:1/3}
-  body[data-mode=tablet] #studio>.credit-bar{grid-column:3}
-  body[data-mode=tablet] #studio>#studio-qr-dock,body[data-mode=tablet] #studio>.studio-upload{grid-row:3/5}
-  body[data-mode=tablet] #studio>.colors-fieldset{grid-column:3;grid-row:3}
-  body[data-mode=tablet] #studio>.surfaces-fieldset{grid-column:3;grid-row:4}
+  body[data-mode=tablet] #studio{grid-template-columns:minmax(210px,.8fr) minmax(0,1.2fr)}
+  body[data-mode=tablet] #studio>.section-top{grid-column:1/-1}
+  body[data-mode=tablet] #studio>.credit-bar{grid-column:1;grid-row:2;justify-self:start}
+  body[data-mode=tablet] #studio>#studio-status{grid-column:2;grid-row:2}
+  body[data-mode=tablet] #studio>.studio-upload{grid-row:3/5}
+  body[data-mode=tablet] #studio>.colors-fieldset{grid-column:2;grid-row:3}
+  body[data-mode=tablet] #studio>.surfaces-fieldset{grid-column:2;grid-row:4}
   body[data-mode=tablet] #studio .surface-options{grid-template-columns:repeat(2,minmax(0,1fr))}
-  body[data-mode=tablet] #studio>.visualizer-note{grid-column:1/3;grid-row:5}
-  body[data-mode=tablet] #studio>#create-render{grid-column:3;grid-row:5}
-  body[data-mode=tablet] #studio-qr-dock .public-qr{width:84px}
+  body[data-mode=tablet] #studio>.visualizer-note{grid-column:1;grid-row:5}
+  body[data-mode=tablet] #studio>#create-render{grid-column:2;grid-row:5}
 }
 
 /* Visible progress for every long-running action. Reduced-motion preferences
@@ -555,14 +558,13 @@ button.is-loading:before,.studio-status.is-rendering:before{content:"";display:i
   body[data-mode=tablet] .slot-times button[aria-pressed=true]{padding:7px 2px}
   body[data-mode=tablet] .booking-panel .field-label{font-size:17px}
   body[data-mode=tablet] .consultation-length{font-size:16px}
-  body[data-mode=tablet] #studio{grid-template-columns:126px 150px minmax(230px,1fr) minmax(0,1.5fr);gap:12px 16px}
+  body[data-mode=tablet] #studio{grid-template-columns:minmax(230px,.95fr) minmax(230px,1fr) minmax(0,1.5fr);gap:12px 16px}
   body[data-mode=tablet] .capture-card:has(#studio:not([hidden])){padding:20px}
   body[data-mode=tablet] #studio h2{font-size:34px}
   body[data-mode=tablet] #studio .eyebrow{font-size:12px;margin-bottom:5px}
   body[data-mode=tablet] #close-studio{font-size:17px}
   body[data-mode=tablet] #studio>.credit-bar strong{font-size:16px}
   body[data-mode=tablet] #studio>#studio-status{font-size:15px;line-height:1.45}
-  body[data-mode=tablet] #studio-qr-dock .public-qr-card strong{font-size:16px}
   body[data-mode=tablet] #studio #upload-zone>strong{font-size:16px;line-height:1.3}
   body[data-mode=tablet] #studio #upload-zone>small{font-size:12px;line-height:1.4}
   body[data-mode=tablet] #studio .colors-fieldset>legend,body[data-mode=tablet] #studio .surfaces-fieldset>legend{font-size:18px}
@@ -587,7 +589,7 @@ button.is-loading:before,.studio-status.is-rendering:before{content:"";display:i
   body[data-mode=tablet] #studio>#studio-status{font-size:13px}
 }
 @media(min-width:760px) and (max-width:959px){
-  body[data-mode=tablet] #studio{grid-template-columns:112px 150px minmax(0,1fr)}
+  body[data-mode=tablet] #studio{grid-template-columns:minmax(230px,.8fr) minmax(0,1.2fr)}
   body[data-mode=tablet] #studio .surface-options{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 /* The larger invitation stays in one panel, with its portfolio photos beside it. */

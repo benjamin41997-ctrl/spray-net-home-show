@@ -21,7 +21,9 @@ The visualizer uses photo, color and surface choices, with no custom-prompt fiel
 
 Pure white (`#FFFFFF`) is included in the palette. New uploads automatically become the active photo, with credits unchanged until a render is created. Busy actions show an accessible progress spinner. Tablet invitations, QR captions, scheduling options and studio controls use larger text.
 
-The tablet studio uses a full-width controls panel above its preview gallery. The single QR, upload/photo selectors, colors and surface choices stay in that top panel. Generated previews share the full bottom row equally and get narrower as the gallery grows to five, with View larger and Save image on each. Browser checks with synthetic media verified one-screen layouts at 1024×768 and 960×600; mobile retains its original media placement.
+The tablet studio uses a full-width controls panel above its preview gallery. Upload occupies the left column, with larger uploaded-photo selectors underneath, alongside colors and surface choices. The private QR stays on the previous screen, reachable through Back. Generated previews share the full bottom row equally and get narrower as the gallery grows to five, with View larger and Save image on each. Mobile retains its original media placement.
+
+Visitors can choose **These times don’t work for me** without entering booking-only fields. This records a private scheduling follow-up request and shows “I’ll reach out to schedule a convenient time.” The owner Leads tab includes a **Scheduling follow-up** filter and note; the flag also exports to CSV. A real confirmed booking clears the request. It does not unlock renders or send a message.
 
 The site installs as a tablet app, with branded home-screen icons and a public `?mode=tablet` launch. Use **Install tablet app** in the tablet footer, or the browser's installation menu. Supported devices use fullscreen, with standalone web-app view as a fallback. No customer data or app shell is cached by its service worker; internet is still required. [Installation steps](docs/INSTALL-APP.md).
 
