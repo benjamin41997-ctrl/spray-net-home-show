@@ -49,11 +49,11 @@ export function attachAddressAutocomplete(input, {lookup, delay = 120} = {}) {
   const status = doc.createElement('p'); status.id = `${input.id}-lookup-status`; status.className = 'address-status'; status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); status.hidden = true; wrapper.after(status);
   const described = [input.getAttribute('aria-describedby'),status.id].filter(Boolean).join(' ');
   input.setAttribute('role','combobox'); input.setAttribute('aria-autocomplete','list'); input.setAttribute('aria-controls',list.id); input.setAttribute('aria-expanded','false'); input.setAttribute('aria-describedby',described);
-  let selected = null, items = [], active = -1, timer, sequence = 0;
+  let selected = null, items = [], active = -1, timer, sequence = 0, gesture = null, deferredValues = null;
   // Visitor-local memory only. Reset discards both query history and matches.
   const cache = new Map(), pending = new Map(), CACHE_LIMIT = 20, CACHE_MS = 5 * 60 * 1000;
   function announce(text = '') {status.textContent = text;status.hidden = !text;}
-  function close() {popup.hidden = true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');active = -1;}
+  function close() {gesture=null;deferredValues=null;popup.hidden = true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');active = -1;}
   function cancel() {clearTimeout(timer);for (const entry of pending.values()) entry.controller.abort();pending.clear();sequence++;input.setAttribute('aria-busy','false');}
   function clear() {cancel();cache.clear();selected = null;items = [];list.replaceChildren();close();announce();}
   function adopt(value) {clear();selected = suggestion(value);if (selected) input.value = selected.display;}
@@ -69,8 +69,39 @@ export function attachAddressAutocomplete(input, {lookup, delay = 120} = {}) {
   function select(item) {
     cancel();input.value = item.display;selected = item;close();announce('Address selected. You can edit it if needed.');input.focus({preventScroll:true});
   }
+  // Commit on release, before a touch browser's synthesized mouse/click events.
+  // Keep the pressed option mounted if a streamed lookup updates mid-gesture.
+  function beginGesture(event,option,item,point=event) {
+    if(event.isPrimary===false || (event.button!=null && event.button!==0))return false;
+    gesture={option,item,id:point.pointerId ?? point.identifier,x:point.clientX,y:point.clientY,query:input.value,moved:false};
+    if(event.pointerType==='mouse')event.preventDefault();
+    return true;
+  }
+  function moveGesture(point) {
+    if(gesture && gesture.id===(point.pointerId ?? point.identifier) && Math.hypot(point.clientX-gesture.x,point.clientY-gesture.y)>12)gesture.moved=true;
+  }
+  function endGesture(event,cancelled=false,point=event) {
+    if(!gesture || gesture.id!==(point.pointerId ?? point.identifier))return;
+    moveGesture(point);
+    const pressed=gesture,updates=deferredValues;gesture=null;deferredValues=null;
+    if(!cancelled && !pressed.moved && pressed.option.contains(event.target) && input.value===pressed.query) {
+      event.preventDefault();select(pressed.item);return;
+    }
+    if(input===doc.activeElement){if(updates)show(updates);else position();}
+    else {close();announce();}
+  }
+  doc.addEventListener('pointermove',moveGesture,{capture:true,passive:true});
+  doc.addEventListener('pointerup',event=>endGesture(event),true);
+  doc.addEventListener('pointercancel',event=>endGesture(event,true),true);
+  const legacyTouch=!doc.defaultView?.PointerEvent;
+  if(legacyTouch) {
+    const touch=event=>Array.from(event.changedTouches).find(point=>point.identifier===gesture?.id);
+    doc.addEventListener('touchmove',event=>{const point=touch(event);if(point)moveGesture(point);},{capture:true,passive:true});
+    doc.addEventListener('touchend',event=>{const point=touch(event);if(point)endGesture(event,false,point);},{capture:true,passive:false});
+    doc.addEventListener('touchcancel',event=>{const point=touch(event);if(point)endGesture(event,true,point);},true);
+  }
   function position() {
-    const view = doc.defaultView; if (!view || popup.hidden) return;
+    const view = doc.defaultView; if (!view || popup.hidden || gesture) return;
     const rect = input.getBoundingClientRect(), viewport = view.visualViewport;
     const top = viewport?.offsetTop || 0, bottom = top + (viewport?.height || view.innerHeight);
     const below = Math.max(0,bottom - rect.bottom - 12), above = Math.max(0,rect.top - top - 12);
@@ -78,13 +109,19 @@ export function attachAddressAutocomplete(input, {lookup, delay = 120} = {}) {
     popup.classList.toggle('above',upwards);list.style.maxHeight = `${Math.min(260,Math.max(90,(upwards ? above : below) - 26))}px`;
   }
   function show(values) {
+    if(gesture){deferredValues=values;return;}
     const next = values.slice(0,8), previous = items[active]?.display;
     if (next.length === items.length && next.every((value,index) => value.display === items[index].display) && !popup.hidden) return;
     items = next;list.replaceChildren();active = -1;
     items.forEach((item,index) => {
       const option = doc.createElement('div');option.id = `${list.id}-${index}`;option.className = 'address-option';option.setAttribute('role','option');option.setAttribute('aria-selected','false');
       const street = doc.createElement('strong'), place = doc.createElement('span');street.textContent = item.street || item.display;place.textContent = [item.city,[item.state,item.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');option.append(street,place);
-      option.addEventListener('pointerdown',event => event.preventDefault());option.addEventListener('click',() => select(item));list.append(option);
+      let pointerHandled=false;
+      option.addEventListener('pointerdown',event=>{pointerHandled=beginGesture(event,option,item);});
+      if(legacyTouch)option.addEventListener('touchstart',event=>{if(event.touches.length===1)pointerHandled=beginGesture(event,option,item,event.touches[0]);},{passive:true});
+      // Detail-zero clicks retain assistive-technology/keyboard activation;
+      // browsers without pointer events can still use their normal click path.
+      option.addEventListener('click',event=>{if(!popup.hidden && (!pointerHandled || event.detail===0))select(item);});list.append(option);
     });
     popup.hidden = !items.length;input.setAttribute('aria-expanded',String(Boolean(items.length)));
     if (!items.length) close();
@@ -142,7 +179,7 @@ export function attachAddressAutocomplete(input, {lookup, delay = 120} = {}) {
     } finally {clearTimeout(timeout);if (pending.get(key) === entry) pending.delete(key);}
   }
   function changed(event) {
-    selected = null;clearTimeout(timer);
+    gesture=null;deferredValues=null;selected = null;clearTimeout(timer);
     if (event?.isComposing) {cancel();show([]);announce();return;}
     if (!eligibleAddressQuery(input.value)) {
       cancel();show([]);announce();
@@ -174,7 +211,7 @@ export function attachAddressAutocomplete(input, {lookup, delay = 120} = {}) {
     else if (event.key === 'Enter' && active >= 0) {event.preventDefault();choose(active);}
     else if (event.key === 'Escape') {event.preventDefault();cancel();close();announce();}
   });
-  input.addEventListener('blur',() => {cancel();close();announce();});
+  input.addEventListener('blur',() => {cancel();if(!gesture){close();announce();}});
   doc.defaultView?.addEventListener('resize',position);doc.defaultView?.visualViewport?.addEventListener('resize',position);
   return {adopt,clear,parts:() => addressParts(input.value,selected)};
 }

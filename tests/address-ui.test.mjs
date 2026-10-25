@@ -4,10 +4,11 @@ import { attachAddressAutocomplete } from '../public/address-autocomplete.js';
 
 // Minimal DOM fixture for this component's DOM/EventTarget surface. It executes
 // the actual module; no browser, remote page, or external lookup is controlled.
-function fixture(lookup) {
-  const document = { activeElement: null, createElement(tag) { return new Element(tag); } };
-  const view = new EventTarget(); view.innerHeight = 800; view.visualViewport = new EventTarget();
+function fixture(lookup,{pointerEvents=true}={}) {
+  const document = Object.assign(new EventTarget(),{ activeElement: null, createElement(tag) { return new Element(tag); } });
+  const view = new EventTarget(); view.innerHeight = 800; view.PointerEvent=Event;view.visualViewport = new EventTarget();
   Object.assign(view.visualViewport, {offsetTop:0,height:800}); document.defaultView = view;
+  if(!pointerEvents)delete view.PointerEvent;
   class Element extends EventTarget {
     constructor(tag) {
       super(); this.tagName = tag.toUpperCase(); this.ownerDocument = document;
@@ -47,6 +48,7 @@ function fixture(lookup) {
     }
     getBoundingClientRect() {return {top:200,bottom:248};}
     scrollIntoView() {}
+    contains(node) {return node===this || this.children.some(child=>child.contains(node));}
     set innerHTML(_) { throw new Error('The address component must not insert HTML.'); }
   }
   const form = document.createElement('form'), input = document.createElement('input');
@@ -85,6 +87,11 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 const address = (street = '101 Main St', city = 'Belmont', state = 'NC', zip = '28012') => ({
   display: `${street}, ${city}, ${state} ${zip}`, street, city, state, zip,
 });
+function pointer(target,type,{pointerId=1,pointerType='touch',clientX=40,clientY=240,button=0,isPrimary=true,...extra}={}) {
+  const event=new Event(type,{cancelable:true,bubbles:true});
+  const {target:hit,...properties}=extra;Object.assign(event,{pointerId,pointerType,clientX,clientY,button,isPrimary,...properties});
+  if(hit)Object.defineProperty(event,'target',{value:hit});target.dispatchEvent(event);return event;
+}
 function cleanup(t, component, control) {
   t.after(async () => {
     component.widget.clear();
@@ -116,6 +123,73 @@ test('manual input after selection clears structured parts and a complete pasted
   assert.equal(component.list.children.length, 0); assert.equal(component.popup.hidden, true);
   const call = await control.waitFor(1);assert.equal(call.query,'101 Manually Edited Street, Charlotte, NC 28277');
   assert.equal(component.input.value, '101 Manually Edited Street, Charlotte, NC 28277');
+});
+
+test('a completed touch fills the whole address even when blur happens before any synthesized click',async t=>{
+  const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+  component.type('101 ma');const call=await control.waitFor(1),choice=address();call.resolve({suggestions:[choice]});await settle();
+  const option=component.list.children[0];pointer(option,'pointerdown');
+  component.document.activeElement=null;component.input.dispatchEvent(new Event('blur'));
+  assert.equal(component.popup.hidden,false,'A touch in progress keeps its suggestion mounted until release.');
+  pointer(component.document,'pointerup',{target:option});
+  assert.equal(component.input.value,choice.display);assert.deepEqual(component.widget.parts(),{city:'Belmont',state:'NC',zip:'28012'});
+  assert.equal(component.popup.hidden,true);assert.equal(component.document.activeElement,component.input);assert.equal(component.submissions(),0);
+});
+
+test('scrolling or cancelling a touch never selects the row, even if a compatibility click follows',async t=>{
+  const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+  component.type('101 ma');const call=await control.waitFor(1);call.resolve({suggestions:[address()]});await settle();
+  const option=component.list.children[0];pointer(option,'pointerdown');
+  pointer(component.document,'pointermove',{clientY:280,target:option});
+  pointer(component.document,'pointerup',{clientY:240,target:option});
+  const click=new Event('click');Object.defineProperty(click,'detail',{value:1});option.dispatchEvent(click);
+  assert.equal(component.input.value,'101 ma');assert.equal(component.popup.hidden,false);assert.deepEqual(component.widget.parts(),{city:'',state:'',zip:''});
+  pointer(option,'pointerdown');pointer(component.document,'pointercancel',{target:option});option.dispatchEvent(click);
+  assert.equal(component.input.value,'101 ma');assert.equal(component.submissions(),0);
+});
+
+test('stream updates and keyboard viewport changes cannot replace or move an option during its tap',async t=>{
+  const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+  component.type('101 ma');const call=await control.waitFor(1),choice=address();call.onUpdate({suggestions:[choice],done:false});
+  const option=component.list.children[0],height=component.list.style.maxHeight;pointer(option,'pointerdown');
+  component.document.defaultView.visualViewport.height=310;component.document.defaultView.visualViewport.dispatchEvent(new Event('resize'));
+  call.onUpdate({suggestions:[address('101 Maple Dr'),choice],done:false});
+  assert.equal(component.list.children[0],option);assert.equal(component.list.style.maxHeight,height);
+  pointer(component.document,'pointerup',{target:option.children[0]});
+  assert.equal(component.input.value,choice.display);assert.deepEqual(component.widget.parts(),{city:'Belmont',state:'NC',zip:'28012'});
+  assert.equal(call.signal.aborted,true);call.resolve({suggestions:[address('101 Other St')]});await settle();
+  assert.equal(component.input.value,choice.display);assert.equal(component.popup.hidden,true);
+});
+
+test('reset and editing invalidate a pressed option so release cannot restore an old visitor address',async t=>{
+  const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+  component.type('101 ma');const call=await control.waitFor(1);call.resolve({suggestions:[address()]});await settle();
+  const option=component.list.children[0];pointer(option,'pointerdown');component.widget.clear();component.input.value='';
+  pointer(component.document,'pointerup',{target:option});assert.equal(component.input.value,'');assert.equal(component.popup.hidden,true);
+  component.type('101 ma');const retry=await control.waitFor(2);retry.resolve({suggestions:[address()]});await settle();
+  const current=component.list.children[0];pointer(current,'pointerdown');component.type('202 New Address');
+  pointer(component.document,'pointerup',{target:current});assert.equal(component.input.value,'202 New Address');assert.deepEqual(component.widget.parts(),{city:'',state:'',zip:''});
+});
+
+test('mouse release and assistive-technology clicks still select without submitting the form',async t=>{
+  const control=controlledLookup(),component=fixture(control.lookup);cleanup(t,component,control);
+  component.type('101 ma');const call=await control.waitFor(1);call.resolve({suggestions:[address()]});await settle();
+  let option=component.list.children[0];assert.equal(pointer(option,'pointerdown',{pointerType:'mouse'}).defaultPrevented,true);
+  pointer(component.document,'pointerup',{pointerId:2,target:option});assert.equal(component.input.value,'101 ma');
+  pointer(component.document,'pointerup',{pointerType:'mouse',target:option});assert.equal(component.input.value,address().display);
+  component.type('101 ma');option=component.list.children[0];const click=new Event('click');Object.defineProperty(click,'detail',{value:0});option.dispatchEvent(click);
+  assert.equal(component.input.value,address().display);assert.equal(component.submissions(),0);
+});
+
+test('touch-only Safari fallback fills the address before its delayed click while retaining structured parts',async t=>{
+  const control=controlledLookup(),component=fixture(control.lookup,{pointerEvents:false});cleanup(t,component,control);
+  component.type('101 ma');const call=await control.waitFor(1);call.resolve({suggestions:[address()]});await settle();
+  const option=component.list.children[0],point={identifier:4,clientX:40,clientY:240};
+  const start=new Event('touchstart');Object.assign(start,{touches:[point]});option.dispatchEvent(start);
+  component.document.activeElement=null;component.input.dispatchEvent(new Event('blur'));
+  const end=new Event('touchend',{cancelable:true});Object.defineProperty(end,'target',{value:option});Object.assign(end,{changedTouches:[point]});component.document.dispatchEvent(end);
+  assert.equal(end.defaultPrevented,true);assert.equal(component.input.value,address().display);assert.deepEqual(component.widget.parts(),{city:'Belmont',state:'NC',zip:'28012'});
+  assert.equal(component.popup.hidden,true);assert.equal(component.submissions(),0);
 });
 
 test('a house number alone starts lookup, gives immediate feedback, and displays actual nearby options', async t => {
